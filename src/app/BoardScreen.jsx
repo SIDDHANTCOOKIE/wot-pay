@@ -36,7 +36,13 @@ export default function BoardScreen({ board, signer }) {
       <h2>
         Open now <span className="dim">{board.trustLoading ? '· loading your web…' : `· ${open.length}`}</span>
       </h2>
-      {open.length === 0 && <div className="empty">Nothing open right now. New offers show up here live.</div>}
+      {open.length === 0 && (
+        <div className="empty">
+          {board.relaysUp === 0
+            ? 'Can’t reach any relay right now, so the board may be missing offers. Check your connection.'
+            : 'Nothing open right now. New offers show up here live.'}
+        </div>
+      )}
       {open.map((o) => (
         <OfferRow key={o.id} o={o} board={board} me={me} onOpen={setOpenId} />
       ))}
@@ -89,7 +95,8 @@ function Detail({ board, signer, offer, onBack }) {
   }
 
   const received = board.cash.forOffer(offer.id, offer.pubkey)
-  const canClaim = how === 'cashu' ? board.cash.supported : ln.includes('@')
+  const expired = state.status === 'expired'
+  const canClaim = !expired && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
 
   const doClaim = () => {
     prefs.setReceive(how)
@@ -165,7 +172,7 @@ function Detail({ board, signer, offer, onBack }) {
           )}
           {error && <p className="hint warn">{error}</p>}
           <button className="btn primary wide" disabled={busy || !canClaim} onClick={doClaim}>
-            {busy ? 'Claiming…' : 'Claim and pay'}
+            {expired ? 'This offer expired' : busy ? 'Claiming…' : 'Claim and pay'}
           </button>
         </div>
       )}

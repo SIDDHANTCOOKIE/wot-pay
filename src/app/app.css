@@ -192,3 +192,4 @@ input.input:focus, .tokenbox textarea:focus { border-color: var(--accent); }
 .tokenbox.sent, .tokenbox.got { border: 1px solid rgba(52, 199, 123, 0.45); }
 .tokenbox.sent > div:first-child { color: var(--good); font-weight: 600; }
 .warn-text { color: var(--bad); }
+.who .dot.down { background: var(--bad); }
