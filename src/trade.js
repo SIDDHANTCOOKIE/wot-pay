@@ -5,7 +5,8 @@ export function tradeState(offer, events) {
   const related = events.filter((e) => e.offerId === offer.id)
   const claims = related
     .filter((e) => e.type === 'claim' && e.maker === offer.pubkey && e.pubkey !== offer.pubkey)
-    .sort((a, b) => a.created_at - b.created_at)
+    // Same-second claims are ordered by id so every device agrees on who leads.
+    .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1))
 
   // The maker picks the claim by stamping it. Until then the first claim leads.
   const makerStamp = latest(related.filter((e) => isStamp(e) && e.pubkey === offer.pubkey))
@@ -25,4 +26,4 @@ export function tradeState(offer, events) {
 }
 
 const isStamp = (e) => e.type === 'settled' || e.type === 'disputed'
-const latest = (list) => list.sort((a, b) => b.created_at - a.created_at)[0]
+const latest = (list) => list.sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : -1))[0]

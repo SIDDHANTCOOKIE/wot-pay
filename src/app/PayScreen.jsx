@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { readToken } from '../dm.js'
+import { readToken, tokenIssues } from '../dm.js'
 import { offer as offerEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
@@ -139,13 +139,17 @@ function Live({ board, signer, offer, onDone }) {
   const state = tradeState(offer, board.events)
   const { claim, makerStamp, status } = state
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   async function stamp(kind) {
     setBusy(true)
+    setError('')
     try {
       const args = { offerId: offer.id, claimId: claim.id, counterparty: claim.pubkey }
       const t = kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'no UPI payment received' })
       await board.publish(await signer.sign(t))
+    } catch (e) {
+      setError(e.message)
     } finally {
       setBusy(false)
     }
@@ -196,6 +200,7 @@ function Live({ board, signer, offer, onDone }) {
           )}
           {receive?.method === 'cashu' && <SendToken board={board} signer={signer} offer={offer} claim={claim} />}
           {state.claims.length > 1 && <p className="dim">{state.claims.length - 1} more waiting behind them.</p>}
+          {error && <p className="hint warn">{error}</p>}
           <div className="actions">
             <button className="btn ghost danger" disabled={busy} onClick={() => stamp('disputed')}>
               Not paid
@@ -232,6 +237,8 @@ function SendToken({ board, signer, offer, claim }) {
   const sent = board.cash.forOffer(offer.id, signer.pubkey)
   const t = readToken(text)
   const want = claim.receive.mint
+  const issues = t ? tokenIssues(t, { sats: offer.sats, mint: want }) : []
+  const wrongUnit = t && t.unit !== 'sat'
 
   if (!board.cash.supported) return <p className="hint warn">They want Cashu. Private DMs need the key on this device.</p>
 
@@ -264,13 +271,14 @@ function SendToken({ board, signer, offer, claim }) {
       {text && !t && <p className="hint warn">That doesn’t look like a Cashu token.</p>}
       {t && (
         <div className="dim">
-          {sats(t.amount)} · {mintName(t.mint)}
-          {t.amount < offer.sats && <span className="warn-text"> · {sats(offer.sats - t.amount)} short</span>}
-          {want && t.mint !== want && <span className="warn-text"> · not the mint they asked for</span>}
+          {wrongUnit ? `${t.amount} ${t.unit}` : sats(t.amount)} · {mintName(t.mint)}
+          {issues.map((i) => (
+            <span key={i} className="warn-text"> · {i}</span>
+          ))}
         </div>
       )}
       {error && <p className="hint warn">{error}</p>}
-      <button className="btn primary wide" disabled={!t || busy} onClick={go}>
+      <button className="btn primary wide" disabled={!t || wrongUnit || busy} onClick={go}>
         {busy ? 'Sending…' : 'Send privately'}
       </button>
     </div>

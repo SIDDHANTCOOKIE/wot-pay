@@ -3,7 +3,8 @@ import { DEFAULT_RELAYS, KIND, APP_TAG } from './kinds.js'
 import { assertNoToken } from './fence.js'
 import { GIFT_WRAP } from './dm.js'
 
-export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool() } = {}) {
+// Ping keeps the connection count honest when a network drops silently.
+export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool({ enablePing: true, enableReconnect: true }) } = {}) {
   // Every outgoing event passes the token fence, even ones not built by events.js.
   async function publish(signed) {
     assertNoToken(signed)
@@ -30,8 +31,12 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
       if (w.kind !== GIFT_WRAP) throw new Error('sendWrapped only sends gift wraps')
       assertNoToken(w)
     }
-    const results = await Promise.allSettled(wraps.flatMap((w) => pool.publish(relays, w)))
-    if (!results.some((r) => r.status === 'fulfilled')) throw new Error('no relay accepted the message')
+    // The first wrap is the recipient's copy; the rest are the sender's own.
+    // Only the recipient's copy decides success.
+    const results = await Promise.all(wraps.map((w) => Promise.allSettled(pool.publish(relays, w))))
+    const ok = results[0].filter((r) => r.status === 'fulfilled').length
+    if (ok === 0) throw new Error('no relay accepted the message')
+    return { ok, total: relays.length }
   }
 
   // Gift wraps are backdated up to two days, so look back a bit further.
@@ -41,7 +46,10 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
     return () => sub.close()
   }
 
+  // How many relays have a live connection right now.
+  const connected = () => [...(pool.listConnectionStatus?.() || new Map()).values()].filter(Boolean).length
+
   const close = () => pool.close(relays)
 
-  return { publish, subscribe, query, sendWrapped, subscribeWrapped, close, relays }
+  return { publish, subscribe, query, sendWrapped, subscribeWrapped, connected, close, relays }
 }

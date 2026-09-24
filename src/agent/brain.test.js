@@ -84,3 +84,51 @@ describe('agent flow', () => {
     expect(brain.onBoard({ events: [mkOffer(friend)], ranker: ranker(), now })).toEqual([])
   })
 })
+
+describe('agent edge cases', () => {
+  it('owner says skip: drops the trade and moves on', () => {
+    const brain = setup()
+    brain.onBoard({ events: [mkOffer(friend)], ranker: ranker(), now })
+    expect(brain.onOwnerMessage('skip')[0].text).toMatch(/Don’t pay/)
+    expect(brain.state.active).toBeNull()
+    const next = mkOffer(friend, 300)
+    expect(brain.onBoard({ events: [next], ranker: ranker(), now })[0].type).toBe('claim')
+  })
+
+  it('maker disputes: owner is told, and "no" stamps disputed', () => {
+    const brain = setup()
+    const o = mkOffer(friend)
+    const [c] = brain.onBoard({ events: [o], ranker: ranker(), now })
+    const mine = ev(c.template, agent)
+    brain.onOwnerMessage('paid')
+    const d = ev({ kind: 3404, tags: [['t', 'wot-pay'], ['e', o.id, '', 'root'], ['e', mine.id, '', 'reply'], ['p', agent.pk]], content: '{"v":1,"reason":"no UPI payment received"}' }, friend)
+    const [dm] = brain.onBoard({ events: [o, mine, d], ranker: ranker(), now })
+    expect(dm.text).toMatch(/didn’t arrive/)
+    const [stamp] = brain.onOwnerMessage('no')
+    expect(stamp.template.kind).toBe(3404)
+  })
+
+  it('skips stale and expired offers', () => {
+    const brain = setup()
+    const stale = { ...mkOffer(friend), created_at: now - 3600 }
+    const expired = { ...mkOffer(friend), expiresAt: now - 1 }
+    expect(brain.onBoard({ events: [stale, expired], ranker: ranker(), now })).toEqual([])
+  })
+
+  it('a claim that never reached a relay is forgotten', () => {
+    const brain = setup()
+    brain.onBoard({ events: [mkOffer(friend)], ranker: ranker(), now })
+    brain.claimFailed()
+    expect(brain.state.active).toBeNull()
+  })
+
+  it('ignores "got" before the owner has paid, and chatter with nothing open', () => {
+    const brain = setup()
+    expect(brain.onOwnerMessage('got')[0].text).toMatch(/Nothing open/)
+    brain.onBoard({ events: [mkOffer(friend)], ranker: ranker(), now })
+    const r = brain.onOwnerMessage('got')
+    expect(r).toHaveLength(1)
+    expect(r[0].type).toBe('dm')
+    expect(brain.state.active).not.toBeNull()
+  })
+})

@@ -33,7 +33,7 @@ export default function App() {
           wot<span>·</span>pay
         </div>
         <button className="who" onClick={() => setShowSettings(true)}>
-          <span className="dot" />
+          <span className={`dot ${board.relaysUp === 0 ? 'down' : ''}`} title={`${board.relaysUp ?? '…'}/${board.total} relays`} />
           {npubShort(signer.pubkey)}
         </button>
       </header>
