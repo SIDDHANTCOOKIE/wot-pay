@@ -41,9 +41,9 @@ describe('token fence', () => {
     const pool = fakePool()
     const relays = createRelayClient({ relays: ['wss://r.example'], pool })
     // Hand-built event bypassing the builders.
-    const leaked = finalizeEvent({ kind: 3402, created_at: 1, tags: [['t', 'wot-upi']], content: JSON.stringify({ v: 1, note: V3 }) }, sk)
+    const leaked = finalizeEvent({ kind: 3402, created_at: 1, tags: [['t', 'wot-pay']], content: JSON.stringify({ v: 1, note: V3 }) }, sk)
     await expect(relays.publish(leaked)).rejects.toThrow(TokenLeakError)
-    const rawProofs = finalizeEvent({ kind: 3401, created_at: 1, tags: [['t', 'wot-upi']], content: RAW }, sk)
+    const rawProofs = finalizeEvent({ kind: 3401, created_at: 1, tags: [['t', 'wot-pay']], content: RAW }, sk)
     await expect(relays.publish(rawProofs)).rejects.toThrow(TokenLeakError)
     expect(pool.publish).not.toHaveBeenCalled()
 
