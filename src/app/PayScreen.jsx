@@ -3,7 +3,8 @@ import { offer as offerEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
-import { Name, TrustBadge, Steps, Copy, rupees, sats, ago } from './ui.jsx'
+import { prefs } from './identity.js'
+import { Name, TrustBadge, Steps, Copy, MintChip, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
 export default function PayScreen({ board, signer, activeId, setActiveId }) {
@@ -43,6 +44,7 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
   const [inr, setInr] = useState(draft.inr ? String(draft.inr) : '')
   const [price, setPrice] = useState(null)
   const [satsIn, setSatsIn] = useState('')
+  const [mint, setMint] = useState(prefs.mint())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -58,8 +60,10 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
     setBusy(true)
     setError('')
     try {
-      const t = offerEvent({ vpa: draft.vpa, payee: draft.payee, inr: amount, sats: total, note: draft.note })
+      const m = mint.trim() || undefined
+      const t = offerEvent({ vpa: draft.vpa, payee: draft.payee, inr: amount, sats: total, mint: m, note: draft.note })
       const signed = await signer.sign(t)
+      prefs.setMint(mint.trim())
       await board.publish(signed)
       onPosted(signed.id)
     } catch (e) {
@@ -103,6 +107,19 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
         </small>
       </label>
 
+      <label className="field">
+        <span>Your Cashu mint (optional)</span>
+        <input
+          value={mint}
+          onChange={(e) => setMint(e.target.value)}
+          placeholder="https://mint.minibits.cash/Bitcoin"
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="url"
+        />
+        <small className="dim">Shown on the offer so people know where the ecash comes from. Only the URL is public.</small>
+      </label>
+
       {error && <p className="hint warn">{error}</p>}
       <div className="actions">
         <button className="btn ghost" onClick={onBack}>
@@ -144,6 +161,7 @@ function Live({ board, signer, offer, onDone }) {
         <div className="dim">
           to {offer.payee || offer.vpa} · {sats(offer.sats)} back
         </div>
+        <MintChip mint={offer.mint} />
       </div>
 
       {status === 'open' && (

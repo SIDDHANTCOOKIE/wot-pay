@@ -3,7 +3,7 @@ import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
-import { Name, TrustBadge, Steps, Copy, rupees, sats, ago } from './ui.jsx'
+import { Name, TrustBadge, Steps, Copy, MintChip, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
 export default function BoardScreen({ board, signer }) {
@@ -56,7 +56,10 @@ function OfferRow({ o, board, me, onOpen, active }) {
           <Name pubkey={o.pubkey} names={board.names} you={me} /> · {o.payee || o.vpa} · {ago(o.created_at)}
         </span>
       </div>
-      <TrustBadge trust={o.trust || board.ranker.explain(o.pubkey)} />
+      <div className="row start">
+        <TrustBadge trust={o.trust || board.ranker.explain(o.pubkey)} />
+        <MintChip mint={o.mint} />
+      </div>
     </button>
   )
 }
@@ -106,6 +109,7 @@ function Detail({ board, signer, offer, onBack }) {
         <div className="big">{rupees(offer.inr)}</div>
         <div className="dim">to {offer.payee || offer.vpa}</div>
         <div className="earn">You get {sats(offer.sats)}</div>
+        <MintChip mint={offer.mint} />
       </div>
 
       <div className="card">
