@@ -3,6 +3,7 @@ import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
+import Orbit, { where, SettleMark } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
@@ -63,7 +64,7 @@ function OfferRow({ o, board, me, onOpen, active }) {
         </span>
       </div>
       <div className="row start">
-        <TrustBadge trust={o.trust || board.ranker.explain(o.pubkey)} />
+        <TrustBadge trust={o.trust || board.ranker.explain(o.pubkey)} pubkey={o.pubkey} />
         <MintChip mint={o.mint} />
       </div>
     </button>
@@ -128,12 +129,16 @@ function Detail({ board, signer, offer, onBack }) {
         <MintChip mint={offer.mint} />
       </div>
 
-      <div className="card">
-        <div className="row">
+      <div className="card trust-card">
+        <Orbit trust={trust} pubkey={offer.pubkey} size={92} />
+        <div className="trust-copy">
           <Name pubkey={offer.pubkey} names={board.names} you={me} />
-          <TrustBadge trust={trust} />
+          <div className="where">{where(trust)}</div>
+          <div className="rec">
+            {trust.settles || 0} settled · {trust.disputes || 0} disputed
+          </div>
         </div>
-        <p className="dim">
+        <p className="dim trust-note">
           {trust.hops === null
             ? 'Nobody in your web knows this person. If they don’t send sats, you lose the rupees.'
             : `Score ${trust.score.toFixed(2)}. Settles and disputes only count from people in your web.`}
@@ -225,7 +230,8 @@ function Detail({ board, signer, offer, onBack }) {
 
       {myStamp && (
         <div className={`card done ${myStamp.type}`}>
-          <div className="big">{myStamp.type === 'settled' ? 'Settled. Nice.' : 'Stamped disputed.'}</div>
+          <SettleMark ok={myStamp.type === 'settled'} />
+          <div className="hero-word">{myStamp.type === 'settled' ? 'Settled.' : 'Disputed.'}</div>
           <div className="dim">Your stamp is public and counts in your web’s trust scores.</div>
           <button className="btn primary" onClick={onBack}>
             Back to board
