@@ -1,5 +1,6 @@
 // Publish one event of each kind with a throwaway key, then read them back.
 // Usage: npm run smoke
+import './agent/websocket.js'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { offer, claim, settled, disputed, parse } from './events.js'
 import { createRelayClient } from './relays.js'
