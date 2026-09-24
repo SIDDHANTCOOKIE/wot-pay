@@ -51,7 +51,8 @@ version of this._
 
 ## Setup
 
-Needs Node 20 or newer (tested on 22) and npm. Nothing else: no database,
+Needs Node 22.12 or newer and npm (`node -v` to check; `nvm use` picks it up
+from `.nvmrc`). Nothing else: no database,
 no server, no API keys.
 
 ```
@@ -66,8 +67,10 @@ Open http://localhost:5173. The app makes a key for you on first load.
 
 **Try a full trade on one laptop:** open the app in a normal window and in a
 private window (two different keys). In the first, type a UPI ID such as
-`shop@okaxis` under the camera, enter an amount and post. In the second, go to
-Board, open the offer and claim it. Stamp both sides to settle.
+`shop@okaxis` under the camera, tap Use, enter an amount and post. In the
+second, open Board, tap the offer, enter any Lightning address and claim. Then
+tap "I sent the sats" in the first window and "Got the sats" in the second.
+No real money moves unless you actually pay.
 
 **On a phone:** browsers only allow the camera on HTTPS, so
 `npm run dev` over your Wi-Fi IP opens without a camera (typing a UPI ID
