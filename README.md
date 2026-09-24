@@ -2,6 +2,13 @@
 
 **Track: Freedom Stack (Nostr + Ecash) — BOSS Battle, Bitshala**
 
+Pay someone's UPI QR in rupees, get sats back from them. Offers live on Nostr
+relays, trust comes from your follow graph, and nobody holds the money.
+
+## Demo video
+
+> **TODO:** link the 3–5 minute demo here once recorded.
+
 ## Team
 
 - siddhant
@@ -23,12 +30,13 @@ own Lightning or Cashu wallet. Both sides stamp `settled` or `disputed` as
 Nostr events. The feed ranks by follows, hop distance, settle count, and
 dispute history.
 
-- No backend. Four screens: create, feed, detail, profile.
+- No backend. Screens: scan & post, board, offer detail, profile.
 - Custom event kinds: `offer`, `claim`, `settled`, `disputed`.
 - No escrow: this client never holds sats, never verifies UTR, never touches
   the UPI rail. Relays carry tickets; UPI carries rupees; your wallet carries
   sats; the web of trust carries the risk.
-- Default visibility is graph-only, not a public firehose of VPAs.
+- The board shows your web first. Offers themselves are public Nostr
+  events, so the VPA on an offer is visible to anyone reading the relays.
 
 **Trust claim, stated precisely:** no operator can revoke, read, or rewrite
 the board. Settlement risk is not removed — it is priced by the graph. The
@@ -37,17 +45,24 @@ project does not change that.
 
 ## What is and is not finished
 
-_Updated as the hack window progresses — see commit history for the honest
-version of this._
+Done and tested (75 tests, `npm test`):
 
-- [x] Nostr event schema (`offer`, `claim`, `settled`, `disputed`), with a
-      test that fails if a Cashu token ever reaches a public event
-- [x] Web-of-trust ranking (follows, hops, settle count, disputes)
-- [x] One end-to-end flow: scan → offer → claim → settle
-- [x] Feed / detail / profile screens
+- [x] Nostr event schema: `offer`, `claim`, `settled`, `disputed` (kinds
+      3401–3404), with a test that fails if a Cashu token ever reaches a
+      public event
+- [x] Web-of-trust ranking: follows, hop distance, settle count, disputes
+- [x] One end-to-end flow: scan → offer → claim → pay UPI → settle
+- [x] Board, offer detail and profile (trade history, trust settings)
 - [x] Cashu hand-off: mint hint on offers; tokens move only as NIP-17 DMs
-- [x] Optional agent daemon (below)
-- [ ] Hosted demo URL
+- [x] Optional agent daemon that claims for you and DMs you to pay
+- [x] Failure paths: relays down, racing claims, expired offers, bad QRs,
+      bad tokens
+
+Not finished:
+
+- [ ] Design pass (open for review)
+- [ ] Hosted HTTPS demo (needed for the phone camera)
+- [ ] Walkthrough of the [phone checklist](docs/device-checklist.md) on real devices
 
 ## Setup
 
@@ -64,6 +79,8 @@ npm run dev
 ```
 
 Open http://localhost:5173. The app makes a key for you on first load.
+
+## How to exercise it
 
 **Try a full trade on one laptop:** open the app in a normal window and in a
 private window (two different keys). In the first, type a UPI ID such as
@@ -85,7 +102,13 @@ npm run preview      # serves dist/ on port 4173
 **Check the relays:** `npm run smoke` publishes one event of each kind with a
 throwaway key and reads them back. Relays live in `src/kinds.js`.
 
-## Agent (optional)
+**Run the tests:** `npm test` covers the event schema, the token fence,
+ranking, trade state, UPI parsing, the DM path, the agent and the failure
+paths above.
+
+**On real phones:** walk the [phone checklist](docs/device-checklist.md).
+
+### Agent (optional)
 
 A small daemon that watches the board for you. It claims offers from people
 you follow (1 hop, up to `MAX_INR`), DMs you over NIP-17 to pay the UPI QR,
@@ -99,10 +122,6 @@ OWNER=npub1... LN_ADDRESS=you@wallet.com MAX_INR=500 npm run agent
 Talk to it from any NIP-17 client (0xchat, Amethyst): `paid`, `skip`,
 `got`, `no`, `status`, `pause`, `resume`. Its key is kept in `.agent-key`.
 
-## Demo video
-
-_Linked here once recorded._
-
 ## Known limitations
 
 - We do not verify UTR. A payer can pay UPI and never receive sats; mitigated
@@ -114,3 +133,16 @@ _Linked here once recorded._
 - If the agent's owner replies `skip` after a claim, the claim stays first in
   line; the maker has to mark it not paid. The agent also forgets an open
   trade if it restarts.
+
+## Next steps
+
+- Hosted demo and a run through the phone checklist.
+- Let a claimer withdraw a claim, so a dropped claim stops blocking the maker.
+- Keep the agent's open trade across restarts.
+- Optional "optimistic escrow" mode: the maker's sats locked in a 2-of-2
+  before the taker pays, released on the happy path. Disputes still fall back
+  to the graph; this does not add a judge, and no-escrow stays the default.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
