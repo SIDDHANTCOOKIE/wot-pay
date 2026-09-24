@@ -1,4 +1,4 @@
-# wot-upi
+# wot-pay
 
 **Track: Freedom Stack (Nostr + Ecash) — BOSS Battle, Bitshala**
 
