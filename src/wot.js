@@ -25,10 +25,12 @@ export function buildGraph(followLists) {
   return graph
 }
 
-// BFS from the viewer. Returns Map pubkey -> hop count (viewer = 0).
+// BFS from the viewer (or several keys that are all "you").
+// Returns Map pubkey -> hop count (viewer = 0).
 export function hopDistances(graph, viewer, maxHops = MAX_HOPS) {
-  const dist = new Map([[viewer, 0]])
-  let frontier = [viewer]
+  const roots = [].concat(viewer).filter(Boolean)
+  const dist = new Map(roots.map((r) => [r, 0]))
+  let frontier = roots
   for (let h = 1; h <= maxHops && frontier.length; h++) {
     const next = []
     for (const pk of frontier) {

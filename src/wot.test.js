@@ -72,6 +72,12 @@ describe('wot', () => {
     expect(r.explain(B).settles).toBe(1)
   })
 
+  it('treats several keys as the viewer', () => {
+    const d = hopDistances(buildGraph(graph), [X, V])
+    expect(d.get(X)).toBe(0)
+    expect(d.get(A)).toBe(1)
+  })
+
   it('drops expired offers', () => {
     const r = createRanker({ viewer: V, followLists: graph })
     const live = { ...offerBy(A), expiresAt: 2000 }
