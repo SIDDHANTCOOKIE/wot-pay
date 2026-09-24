@@ -3,7 +3,7 @@ import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
-import { Name, TrustBadge, Steps, Copy, MintChip, rupees, sats, ago } from './ui.jsx'
+import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
 export default function BoardScreen({ board, signer }) {
@@ -71,6 +71,7 @@ function Detail({ board, signer, offer, onBack }) {
   const leading = state.claim?.pubkey === me
   const myStamp = state.takerStamp && leading ? state.takerStamp : null
   const [ln, setLn] = useState(prefs.lnAddress())
+  const [how, setHow] = useState(() => (board.cash.supported ? prefs.receive() : 'lightning'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const trust = board.ranker.explain(offer.pubkey)
@@ -87,9 +88,17 @@ function Detail({ board, signer, offer, onBack }) {
     }
   }
 
+  const received = board.cash.forOffer(offer.id, offer.pubkey)
+  const canClaim = how === 'cashu' ? board.cash.supported : ln.includes('@')
+
   const doClaim = () => {
-    prefs.setLnAddress(ln.trim())
-    send(claimEvent({ offerId: offer.id, maker: offer.pubkey, receive: { method: 'lightning', address: ln.trim() } }))
+    prefs.setReceive(how)
+    let receive = { method: 'cashu', mint: offer.mint }
+    if (how === 'lightning') {
+      prefs.setLnAddress(ln.trim())
+      receive = { method: 'lightning', address: ln.trim() }
+    }
+    send(claimEvent({ offerId: offer.id, maker: offer.pubkey, receive }))
   }
   const stamp = (kind) => {
     const args = { offerId: offer.id, claimId: mineClaim.id, counterparty: offer.pubkey }
@@ -126,9 +135,20 @@ function Detail({ board, signer, offer, onBack }) {
 
       {!mineClaim && (
         <div className="card">
-          <label className="field">
-            <span>Where should sats go?</span>
+          <div className="field">
+            <span>How do you want the sats?</span>
+            <div className="seg">
+              <button className={how === 'lightning' ? 'on' : ''} onClick={() => setHow('lightning')}>
+                Lightning
+              </button>
+              <button className={how === 'cashu' ? 'on' : ''} onClick={() => setHow('cashu')}>
+                Ecash
+              </button>
+            </div>
+          </div>
+          {how === 'lightning' ? (
             <input
+              className="input"
               value={ln}
               onChange={(e) => setLn(e.target.value)}
               placeholder="you@walletofsatoshi.com"
@@ -136,9 +156,15 @@ function Detail({ board, signer, offer, onBack }) {
               autoCorrect="off"
               inputMode="email"
             />
-          </label>
+          ) : (
+            <p className="dim">
+              {board.cash.supported
+                ? `A Cashu token${offer.mint ? ` from ${mintName(offer.mint)}` : ''} comes to you by encrypted DM. Only you can open it.`
+                : 'Ecash DMs need the key on this device. Use Lightning, or switch back to the local key.'}
+            </p>
+          )}
           {error && <p className="hint warn">{error}</p>}
-          <button className="btn primary wide" disabled={busy || !ln.includes('@')} onClick={doClaim}>
+          <button className="btn primary wide" disabled={busy || !canClaim} onClick={doClaim}>
             {busy ? 'Claiming…' : 'Claim and pay'}
           </button>
         </div>
@@ -157,11 +183,28 @@ function Detail({ board, signer, offer, onBack }) {
               Open UPI app
             </a>
           </div>
-          <p className="dim">
-            {state.makerStamp?.type === 'settled'
-              ? 'They say the sats are sent. Check your wallet.'
-              : 'After you pay, they send the sats to your address.'}
-          </p>
+          {received.map((t) => (
+            <div key={t.id} className="tokenbox got">
+              <div className="big">{sats(t.amount)} arrived as ecash</div>
+              <div className="dim">from {mintName(t.mint)} · private DM</div>
+              <div className="actions">
+                <Copy text={t.token} label="Copy token" />
+                <a className="btn primary" href={`cashu:${t.token}`}>
+                  Open wallet
+                </a>
+              </div>
+              {t.amount < offer.sats && <p className="hint warn">{sats(offer.sats - t.amount)} less than the offer.</p>}
+            </div>
+          ))}
+          {!received.length && (
+            <p className="dim">
+              {state.makerStamp?.type === 'settled'
+                ? 'They say the sats are sent. Check your wallet.'
+                : mineClaim.receive?.method === 'cashu'
+                  ? 'After you pay, the token arrives here by private DM.'
+                  : 'After you pay, they send the sats to your address.'}
+            </p>
+          )}
           <div className="actions">
             <button className="btn ghost danger" disabled={busy} onClick={() => stamp('disputed')}>
               No sats

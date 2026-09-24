@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { localSigner, extensionSigner, toHexPubkey, npubShort, prefs } from './identity.js'
 import { useBoard } from './useBoard.js'
+import { useTokens } from './useTokens.js'
 import PayScreen from './PayScreen.jsx'
 import BoardScreen from './BoardScreen.jsx'
 import ProfileScreen from './ProfileScreen.jsx'
@@ -12,7 +13,9 @@ export default function App() {
   const [trustInput, setTrustInput] = useState(prefs.trustNpub())
   const [showSettings, setShowSettings] = useState(false)
   const trustRoot = toHexPubkey(prefs.trustNpub()) || signer.pubkey
-  const board = useBoard(trustRoot, signer.pubkey)
+  const live = useBoard(trustRoot, signer.pubkey)
+  const cash = useTokens(live.client, signer)
+  const board = { ...live, cash }
 
   useEffect(() => {
     location.hash = tab
