@@ -2,7 +2,7 @@
 // A token is bearer money: anyone reading a relay can redeem it.
 
 // cashuA (v3, base64url JSON) and cashuB (v4, base64url CBOR), optional cashu: URI prefix.
-const TOKEN_STRING = /cashu[AB][A-Za-z0-9_\-+/=]{16,}/i
+export const TOKEN_STRING = /cashu[AB][A-Za-z0-9_\-+/=]{16,}/i
 
 function isProof(v) {
   return v && typeof v === 'object' && 'secret' in v && ('C' in v || 'c' in v)
