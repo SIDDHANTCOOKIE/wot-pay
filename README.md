@@ -40,17 +40,47 @@ project does not change that.
 _Updated as the hack window progresses — see commit history for the honest
 version of this._
 
-- [ ] Nostr event schema (`offer`, `claim`, `settled`, `disputed`)
-- [ ] Web-of-trust ranking (follows, hops, settle count, disputes)
-- [ ] One end-to-end flow: scan → offer → claim → settle
-- [ ] Feed / detail / profile screens
-- [x] Optional Cashu receive hint (mint URL + address — never a token — on
-      public events; tokens move over NIP-17 DM or out-of-band)
+- [x] Nostr event schema (`offer`, `claim`, `settled`, `disputed`), with a
+      test that fails if a Cashu token ever reaches a public event
+- [x] Web-of-trust ranking (follows, hops, settle count, disputes)
+- [x] One end-to-end flow: scan → offer → claim → settle
+- [x] Feed / detail / profile screens
+- [x] Cashu hand-off: mint hint on offers; tokens move only as NIP-17 DMs
+- [x] Optional agent daemon (below)
+- [ ] Hosted demo URL
 
 ## Setup
 
-_To be filled in as the client is built — will include prerequisites,
-install steps, and how to run it on a clean machine._
+Needs Node 20 or newer (tested on 22) and npm. Nothing else: no database,
+no server, no API keys.
+
+```
+git clone https://github.com/SIDDHANTCOOKIE/wot-upi.git
+cd wot-upi
+npm ci
+npm test
+npm run dev
+```
+
+Open http://localhost:5173. The app makes a key for you on first load.
+
+**Try a full trade on one laptop:** open the app in a normal window and in a
+private window (two different keys). In the first, type a UPI ID such as
+`shop@okaxis` under the camera, enter an amount and post. In the second, go to
+Board, open the offer and claim it. Stamp both sides to settle.
+
+**On a phone:** browsers only allow the camera on HTTPS, so
+`npm run dev` over your Wi-Fi IP opens without a camera (typing a UPI ID
+still works). For the camera, use the hosted demo, or deploy the build
+anywhere static:
+
+```
+npm run build        # outputs dist/
+npm run preview      # serves dist/ on port 4173
+```
+
+**Check the relays:** `npm run smoke` publishes one event of each kind with a
+throwaway key and reads them back. Relays live in `src/kinds.js`.
 
 ## Agent (optional)
 
@@ -76,3 +106,8 @@ _Linked here once recorded._
   by small amounts, 1-hop-first defaults, and public dispute stamps — not
   eliminated.
 - We are a client, not an operator, and not a bank.
+- Ecash DMs need the key made on the device. With a browser extension
+  signer, claim with Lightning instead.
+- If the agent's owner replies `skip` after a claim, the claim stays first in
+  line; the maker has to mark it not paid. The agent also forgets an open
+  trade if it restarts.
