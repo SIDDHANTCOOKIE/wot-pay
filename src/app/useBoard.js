@@ -7,7 +7,7 @@ const DAY = 24 * 3600
 
 // Live view of the board: every app event from the last day, the viewer's
 // trust data, and profile names.
-export function useBoard(trustRoot) {
+export function useBoard(trustRoot, me) {
   const client = useMemo(() => createRelayClient(), [])
   const [events, setEvents] = useState(() => new Map())
   const [trust, setTrust] = useState({ followLists: [], stamps: [], loading: true })
@@ -55,11 +55,11 @@ export function useBoard(trustRoot) {
   const ranker = useMemo(
     () =>
       createRanker({
-        viewer: trustRoot,
+        viewer: [trustRoot, me],
         followLists: trust.followLists,
         stamps: [...trust.stamps, ...all.filter((e) => e.type === 'settled' || e.type === 'disputed')],
       }),
-    [trustRoot, trust, all],
+    [trustRoot, me, trust, all],
   )
 
   // Show an event locally right away, then send it.
