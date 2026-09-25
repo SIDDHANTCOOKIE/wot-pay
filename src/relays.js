@@ -19,7 +19,10 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
     return () => sub.close()
   }
 
+  // One-shot fetch, e.g. follow lists for the ranker.
+  const query = (filter, { maxWait = 4000 } = {}) => pool.querySync(relays, filter, { maxWait })
+
   const close = () => pool.close(relays)
 
-  return { publish, subscribe, close, relays }
+  return { publish, subscribe, query, close, relays }
 }
