@@ -71,8 +71,8 @@ from `.nvmrc`). Nothing else: no database,
 no server, no API keys.
 
 ```
-git clone https://github.com/SIDDHANTCOOKIE/wot-upi.git
-cd wot-upi
+git clone https://github.com/SIDDHANTCOOKIE/wot-pay.git
+cd wot-pay
 npm ci
 npm test
 npm run dev
