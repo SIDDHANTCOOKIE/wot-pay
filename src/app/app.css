@@ -294,3 +294,30 @@ main { padding-bottom: 120px; }
 .steps li::before { height: 2px; }
 .payto .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
 .viewfinder .frame { border-color: rgba(255, 255, 255, 0.85); border-width: 1.5px; border-radius: 22px; }
+
+/* Design v2: keyboard clarity and small-screen fit. */
+:where(button, a, input, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+:where(.btn, .offer, .tabs button, .who):focus-visible {
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .offer:hover { border-color: var(--line-2); transform: translateY(-2px); }
+  .btn:not(:disabled):hover { transform: translateY(-1px); }
+}
+@media (max-width: 360px) {
+  header { padding-inline: 14px; }
+  main { padding-inline: 14px; }
+  .nudge { margin-inline: 14px; }
+  .card { padding: 16px; }
+  .trust-card { column-gap: 12px; }
+  .trust-copy .where { font-size: 20px; }
+  .tabs { width: calc(100% - 28px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn, .offer, .tabs button { transition: none; }
+  .offer:hover, .btn:not(:disabled):hover, .offer:active, .btn:active { transform: none; }
+}
