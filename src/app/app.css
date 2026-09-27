@@ -321,3 +321,36 @@ main { padding-bottom: 120px; }
   .btn, .offer, .tabs button { transition: none; }
   .offer:hover, .btn:not(:disabled):hover, .offer:active, .btn:active { transform: none; }
 }
+
+/* A pending or missing camera should not leave an empty black scan square. */
+.viewfinder { display: grid; place-items: center; }
+.viewfinder video, .viewfinder .frame, .camera-fallback { grid-area: 1 / 1; }
+.viewfinder video { align-self: stretch; }
+.camera-fallback { z-index: 1; text-align: center; }
+.viewfinder:has(video:not([style*=none])) .camera-fallback { pointer-events: none; }
+.viewfinder.camera-off {
+  aspect-ratio: auto;
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 30%, #22201b 0, var(--card) 62%);
+}
+.viewfinder.camera-off video { display: none; }
+.camera-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--dim);
+  font-size: 13px;
+}
+.camera-fallback-mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 159, 67, 0.35);
+  border-radius: 50%;
+  color: var(--accent);
+  font: 400 32px/1 var(--display);
+}
