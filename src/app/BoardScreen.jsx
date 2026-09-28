@@ -35,13 +35,23 @@ export default function BoardScreen({ board, signer }) {
       )}
 
       <h2>
-        Open now <span className="dim">{board.trustLoading ? '· loading your web…' : `· ${open.length}`}</span>
+        Open now <span className="dim">{
+          board.relaysUp === null
+            ? '· connecting…'
+            : board.relaysUp === 0
+              ? '· offline'
+              : board.trustLoading
+                ? '· loading your web…'
+                : `· ${open.length}`
+        }</span>
       </h2>
       {open.length === 0 && (
         <div className="empty">
-          {board.relaysUp === 0
-            ? 'Can’t reach any relay right now, so the board may be missing offers. Check your connection.'
-            : 'Nothing open right now. New offers show up here live.'}
+          {board.relaysUp === null
+            ? 'Connecting to Nostr relays. Offers will appear here when they arrive.'
+            : board.relaysUp === 0
+              ? 'Can’t reach any relay right now, so the board may be missing offers. Check your connection.'
+              : 'Nothing open right now. New offers show up here live.'}
         </div>
       )}
       {open.map((o) => (
