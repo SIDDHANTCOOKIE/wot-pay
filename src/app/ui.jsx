@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import Orbit, { tone, where } from './Orbit.jsx'
 import { npubShort } from './identity.js'
 
@@ -59,16 +60,27 @@ export function Steps({ at, labels }) {
   )
 }
 
-export function Copy({ text, label }) {
+export function Copy({ text, label = 'Copy' }) {
+  const [state, setState] = useState('idle')
+  useEffect(() => {
+    if (state === 'idle') return
+    const reset = setTimeout(() => setState('idle'), 1800)
+    return () => clearTimeout(reset)
+  }, [state])
+
+  async function copy() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      setState('copied')
+    } catch {
+      setState('failed')
+    }
+  }
+
   return (
-    <button
-      className="btn ghost small"
-      onClick={(e) => {
-        navigator.clipboard?.writeText(text)
-        e.currentTarget.textContent = 'Copied'
-      }}
-    >
-      {label || 'Copy'}
+    <button type="button" className="btn ghost small" onClick={copy} aria-live="polite">
+      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Could not copy' : label}
     </button>
   )
 }
