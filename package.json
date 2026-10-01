@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
-    "smoke": "node src/smoke.js"
+    "smoke": "node src/smoke.js",
+    "agent": "node src/agent/daemon.js"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^4.11.0",

@@ -52,6 +52,20 @@ version of this._
 _To be filled in as the client is built — will include prerequisites,
 install steps, and how to run it on a clean machine._
 
+## Agent (optional)
+
+A small daemon that watches the board for you. It claims offers from people
+you follow (1 hop, up to `MAX_INR`), DMs you over NIP-17 to pay the UPI QR,
+and stamps the trade when you reply. Sats go to your own Lightning address;
+the agent never holds sats and never opens a UPI app.
+
+```
+OWNER=npub1... LN_ADDRESS=you@wallet.com MAX_INR=500 npm run agent
+```
+
+Talk to it from any NIP-17 client (0xchat, Amethyst): `paid`, `skip`,
+`got`, `no`, `status`, `pause`, `resume`. Its key is kept in `.agent-key`.
+
 ## Demo video
 
 _Linked here once recorded._
