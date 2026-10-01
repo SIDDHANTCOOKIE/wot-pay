@@ -44,7 +44,7 @@ version of this._
 - [ ] Web-of-trust ranking (follows, hops, settle count, disputes)
 - [ ] One end-to-end flow: scan → offer → claim → settle
 - [ ] Feed / detail / profile screens
-- [ ] Optional Cashu receive hint (mint URL + address — never a token — on
+- [x] Optional Cashu receive hint (mint URL + address — never a token — on
       public events; tokens move over NIP-17 DM or out-of-band)
 
 ## Setup

@@ -69,5 +69,5 @@ export function useBoard(trustRoot, me) {
     return client.publish(signed)
   }
 
-  return { events: all, ranker, names, publish, trustLoading: trust.loading }
+  return { client, events: all, ranker, names, publish, trustLoading: trust.loading }
 }

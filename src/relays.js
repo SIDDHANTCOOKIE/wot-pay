@@ -1,6 +1,7 @@
 import { SimplePool } from 'nostr-tools/pool'
 import { DEFAULT_RELAYS, KIND, APP_TAG } from './kinds.js'
 import { assertNoToken } from './fence.js'
+import { GIFT_WRAP } from './dm.js'
 
 export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool() } = {}) {
   // Every outgoing event passes the token fence, even ones not built by events.js.
@@ -22,7 +23,25 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
   // One-shot fetch, e.g. follow lists for the ranker.
   const query = (filter, { maxWait = 4000 } = {}) => pool.querySync(relays, filter, { maxWait })
 
+  // Token DMs. Only gift wraps go out this way; their content is ciphertext,
+  // and the fence still checks them.
+  async function sendWrapped(wraps) {
+    for (const w of wraps) {
+      if (w.kind !== GIFT_WRAP) throw new Error('sendWrapped only sends gift wraps')
+      assertNoToken(w)
+    }
+    const results = await Promise.allSettled(wraps.flatMap((w) => pool.publish(relays, w)))
+    if (!results.some((r) => r.status === 'fulfilled')) throw new Error('no relay accepted the message')
+  }
+
+  // Gift wraps are backdated up to two days, so look back a bit further.
+  function subscribeWrapped(pubkey, onEvent) {
+    const since = Math.floor(Date.now() / 1000) - 3 * 24 * 3600
+    const sub = pool.subscribeMany(relays, { kinds: [GIFT_WRAP], '#p': [pubkey], since }, { onevent: onEvent })
+    return () => sub.close()
+  }
+
   const close = () => pool.close(relays)
 
-  return { publish, subscribe, query, close, relays }
+  return { publish, subscribe, query, sendWrapped, subscribeWrapped, close, relays }
 }

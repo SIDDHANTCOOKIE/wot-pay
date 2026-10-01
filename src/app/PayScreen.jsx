@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { readToken } from '../dm.js'
 import { offer as offerEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
-import { Name, TrustBadge, Steps, Copy, rupees, sats, ago } from './ui.jsx'
+import { prefs } from './identity.js'
+import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
 export default function PayScreen({ board, signer, activeId, setActiveId }) {
@@ -43,6 +45,7 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
   const [inr, setInr] = useState(draft.inr ? String(draft.inr) : '')
   const [price, setPrice] = useState(null)
   const [satsIn, setSatsIn] = useState('')
+  const [mint, setMint] = useState(prefs.mint())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -58,8 +61,10 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
     setBusy(true)
     setError('')
     try {
-      const t = offerEvent({ vpa: draft.vpa, payee: draft.payee, inr: amount, sats: total, note: draft.note })
+      const m = mint.trim() || undefined
+      const t = offerEvent({ vpa: draft.vpa, payee: draft.payee, inr: amount, sats: total, mint: m, note: draft.note })
       const signed = await signer.sign(t)
+      prefs.setMint(mint.trim())
       await board.publish(signed)
       onPosted(signed.id)
     } catch (e) {
@@ -103,6 +108,19 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
         </small>
       </label>
 
+      <label className="field">
+        <span>Your Cashu mint (optional)</span>
+        <input
+          value={mint}
+          onChange={(e) => setMint(e.target.value)}
+          placeholder="https://mint.minibits.cash/Bitcoin"
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="url"
+        />
+        <small className="dim">Shown on the offer so people know where the ecash comes from. Only the URL is public.</small>
+      </label>
+
       {error && <p className="hint warn">{error}</p>}
       <div className="actions">
         <button className="btn ghost" onClick={onBack}>
@@ -144,6 +162,7 @@ function Live({ board, signer, offer, onDone }) {
         <div className="dim">
           to {offer.payee || offer.vpa} · {sats(offer.sats)} back
         </div>
+        <MintChip mint={offer.mint} />
       </div>
 
       {status === 'open' && (
@@ -175,7 +194,7 @@ function Live({ board, signer, offer, onDone }) {
               </a>
             </div>
           )}
-          {receive?.method === 'cashu' && <p className="dim">They want Cashu. Send the token by DM, never in public.</p>}
+          {receive?.method === 'cashu' && <SendToken board={board} signer={signer} offer={offer} claim={claim} />}
           {state.claims.length > 1 && <p className="dim">{state.claims.length - 1} more waiting behind them.</p>}
           <div className="actions">
             <button className="btn ghost danger" disabled={busy} onClick={() => stamp('disputed')}>
@@ -202,5 +221,58 @@ function Live({ board, signer, offer, onDone }) {
         </div>
       )}
     </section>
+  )
+}
+
+// Paste a token from your wallet; it goes to the taker as an encrypted DM.
+function SendToken({ board, signer, offer, claim }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const sent = board.cash.forOffer(offer.id, signer.pubkey)
+  const t = readToken(text)
+  const want = claim.receive.mint
+
+  if (!board.cash.supported) return <p className="hint warn">They want Cashu. Private DMs need the key on this device.</p>
+
+  if (sent.length)
+    return (
+      <div className="tokenbox sent">
+        <div>✓ Sent {sats(sent.reduce((n, x) => n + x.amount, 0))} as ecash by private DM</div>
+        <small className="dim">Only they can open it. Nothing about the token is public.</small>
+      </div>
+    )
+
+  async function go() {
+    setBusy(true)
+    setError('')
+    try {
+      await board.cash.send(claim.pubkey, t.token, offer.id)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="tokenbox">
+      <label className="field">
+        <span>They want ecash{want ? ` from ${mintName(want)}` : ''}. Paste a token from your wallet.</span>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="cashuB…" rows={3} spellCheck={false} />
+      </label>
+      {text && !t && <p className="hint warn">That doesn’t look like a Cashu token.</p>}
+      {t && (
+        <div className="dim">
+          {sats(t.amount)} · {mintName(t.mint)}
+          {t.amount < offer.sats && <span className="warn-text"> · {sats(offer.sats - t.amount)} short</span>}
+          {want && t.mint !== want && <span className="warn-text"> · not the mint they asked for</span>}
+        </div>
+      )}
+      {error && <p className="hint warn">{error}</p>}
+      <button className="btn primary wide" disabled={!t || busy} onClick={go}>
+        {busy ? 'Sending…' : 'Send privately'}
+      </button>
+    </div>
   )
 }

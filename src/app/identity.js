@@ -1,10 +1,13 @@
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import * as nip19 from 'nostr-tools/nip19'
+import { wrapToken, openToken } from '../dm.js'
 
 const SK = 'wot-pay:sk'
 const TRUST = 'wot-pay:trust-npub'
 const LN = 'wot-pay:ln-address'
+const MINT = 'wot-pay:mint'
+const HOW = 'wot-pay:receive'
 
 // A key kept on this device. Good enough for a demo; use a NIP-07
 // extension for anything real.
@@ -19,6 +22,8 @@ export function localSigner() {
     kind: 'local',
     pubkey: getPublicKey(sk),
     sign: async (t) => finalizeEvent(t, sk),
+    wrapToken: (to, token, offerId) => wrapToken({ sk, to, token, offerId }),
+    openToken: (w) => openToken(w, sk),
   }
 }
 
@@ -49,4 +54,8 @@ export const prefs = {
   setTrustNpub: (v) => localStorage.setItem(TRUST, v),
   lnAddress: () => localStorage.getItem(LN) || '',
   setLnAddress: (v) => localStorage.setItem(LN, v),
+  mint: () => localStorage.getItem(MINT) || '',
+  setMint: (v) => localStorage.setItem(MINT, v),
+  receive: () => localStorage.getItem(HOW) || 'lightning',
+  setReceive: (v) => localStorage.setItem(HOW, v),
 }

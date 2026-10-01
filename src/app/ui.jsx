@@ -21,6 +21,21 @@ export function TrustBadge({ trust }) {
   )
 }
 
+// Short label for a mint URL: host plus path, no scheme.
+export function mintName(url) {
+  try {
+    const u = new URL(url)
+    return (u.host + u.pathname).replace(/\/$/, '')
+  } catch {
+    return url
+  }
+}
+
+export function MintChip({ mint }) {
+  if (!mint) return null
+  return <span className="chip">ecash · {mintName(mint)}</span>
+}
+
 const fmt = (n) => (Number.isInteger(n) ? n : n.toFixed(1))
 
 export const rupees = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
