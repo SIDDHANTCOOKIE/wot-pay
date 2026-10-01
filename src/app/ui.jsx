@@ -1,3 +1,4 @@
+import Orbit, { tone, where } from './Orbit.jsx'
 import { npubShort } from './identity.js'
 
 export function Name({ pubkey, names, you }) {
@@ -5,18 +6,16 @@ export function Name({ pubkey, names, you }) {
   return <span className="name">{names?.[pubkey] || npubShort(pubkey)}</span>
 }
 
-// Trust at a glance: how far away, how many settled trades, any disputes.
-export function TrustBadge({ trust }) {
+// Trust at a glance: a small orbit plus where they sit and their record.
+export function TrustBadge({ trust, pubkey }) {
   if (!trust) return null
-  const { hops, settles, disputes } = trust
-  const tone = disputes > 0 ? 'bad' : hops === null ? 'far' : hops <= 1 ? 'good' : 'ok'
-  const where = hops === null ? 'outside your web' : hops === 0 ? 'you' : hops === 1 ? 'you follow' : `${hops} hops`
+  const { settles, disputes } = trust
   return (
-    <span className={`badge ${tone}`}>
-      <span className="dot" />
-      {where}
-      {settles > 0 && <> · {fmt(settles)} settled</>}
-      {disputes > 0 && <> · {fmt(disputes)} disputed</>}
+    <span className={`badge ${tone(trust)}`}>
+      <Orbit trust={trust} pubkey={pubkey} size={22} live={false} />
+      {where(trust)}
+      {settles > 0 && <span className="rec"> · {fmt(settles)} settled</span>}
+      {disputes > 0 && <span className="rec"> · {fmt(disputes)} disputed</span>}
     </span>
   )
 }

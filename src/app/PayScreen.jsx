@@ -5,6 +5,7 @@ import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
 import { prefs } from './identity.js'
+import Orbit, { where, SettleMark } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
@@ -181,9 +182,12 @@ function Live({ board, signer, offer, onDone }) {
 
       {claim && !makerStamp && (
         <div className="card claim">
-          <div className="row">
-            <Name pubkey={claim.pubkey} names={board.names} you={signer.pubkey} />
-            <TrustBadge trust={board.ranker.explain(claim.pubkey)} />
+          <div className="trust-card flat">
+            <Orbit trust={board.ranker.explain(claim.pubkey)} pubkey={claim.pubkey} size={72} />
+            <div className="trust-copy">
+              <Name pubkey={claim.pubkey} names={board.names} you={signer.pubkey} />
+              <div className="where">{where(board.ranker.explain(claim.pubkey))}</div>
+            </div>
           </div>
           <p>
             is paying <b>{rupees(offer.inr)}</b> to {offer.payee || offer.vpa}. When the payee confirms, send{' '}
@@ -214,7 +218,8 @@ function Live({ board, signer, offer, onDone }) {
 
       {makerStamp && (
         <div className={`card done ${makerStamp.type}`}>
-          <div className="big">{makerStamp.type === 'settled' ? 'Done. Stamped settled.' : 'Stamped disputed.'}</div>
+          <SettleMark ok={makerStamp.type === 'settled'} />
+          <div className="hero-word">{makerStamp.type === 'settled' ? 'Settled.' : 'Disputed.'}</div>
           <div className="dim">
             {state.takerStamp
               ? `They stamped ${state.takerStamp.type} too.`

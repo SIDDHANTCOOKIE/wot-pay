@@ -40,7 +40,8 @@ export default function App() {
 
       {usingOwnGraph && !showSettings && (
         <button className="nudge" onClick={() => setShowSettings(true)}>
-          Add your npub so the board knows who you trust →
+          Add your npub so the board knows who you trust
+          <span className="go">→</span>
         </button>
       )}
 
@@ -54,10 +55,18 @@ export default function App() {
 
       <nav className="tabs">
         <button className={tab === 'pay' ? 'on' : ''} onClick={() => setTab('pay')}>
-          <span className="icon">⌗</span>Scan &amp; post
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11M4.5 8h7" />
+          </svg>
+          Scan &amp; post
         </button>
         <button className={tab === 'board' ? 'on' : ''} onClick={() => setTab('board')}>
-          <span className="icon">☰</span>Board
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <circle cx="8" cy="8" r="1.5" />
+            <circle cx="8" cy="8" r="4" opacity="0.6" />
+            <circle cx="8" cy="8" r="6.5" opacity="0.35" />
+          </svg>
+          Board
         </button>
       </nav>
 
