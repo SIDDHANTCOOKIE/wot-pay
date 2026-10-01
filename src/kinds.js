@@ -11,7 +11,8 @@ export const KIND_NAME = Object.fromEntries(
 )
 
 // Every event we publish carries this tag so clients can filter on it.
-export const APP_TAG = 'wot-upi'
+// Bumped from wot-upi with the rename; old test events are not read.
+export const APP_TAG = 'wot-pay'
 
 export const SCHEMA_VERSION = 1
 

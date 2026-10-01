@@ -2,9 +2,9 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import * as nip19 from 'nostr-tools/nip19'
 
-const SK = 'wot-upi:sk'
-const TRUST = 'wot-upi:trust-npub'
-const LN = 'wot-upi:ln-address'
+const SK = 'wot-pay:sk'
+const TRUST = 'wot-pay:trust-npub'
+const LN = 'wot-pay:ln-address'
 
 // A key kept on this device. Good enough for a demo; use a NIP-07
 // extension for anything real.

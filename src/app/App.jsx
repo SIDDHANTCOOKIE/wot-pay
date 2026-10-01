@@ -8,7 +8,7 @@ import ProfileScreen from './ProfileScreen.jsx'
 export default function App() {
   const [signer, setSigner] = useState(localSigner)
   const [tab, setTab] = useState(() => (location.hash === '#board' ? 'board' : 'pay'))
-  const [activeId, setActiveId] = useState(() => sessionStorage.getItem('wot-upi:active'))
+  const [activeId, setActiveId] = useState(() => sessionStorage.getItem('wot-pay:active'))
   const [trustInput, setTrustInput] = useState(prefs.trustNpub())
   const [showSettings, setShowSettings] = useState(false)
   const trustRoot = toHexPubkey(prefs.trustNpub()) || signer.pubkey
@@ -18,7 +18,7 @@ export default function App() {
     location.hash = tab
   }, [tab])
   useEffect(() => {
-    activeId ? sessionStorage.setItem('wot-upi:active', activeId) : sessionStorage.removeItem('wot-upi:active')
+    activeId ? sessionStorage.setItem('wot-pay:active', activeId) : sessionStorage.removeItem('wot-pay:active')
   }, [activeId])
 
   const usingOwnGraph = trustRoot === signer.pubkey
@@ -27,7 +27,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="brand">
-          wot<span>·</span>upi
+          wot<span>·</span>pay
         </div>
         <button className="who" onClick={() => setShowSettings(true)}>
           <span className="dot" />
