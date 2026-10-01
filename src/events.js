@@ -16,6 +16,8 @@ import { assertNoToken } from './fence.js'
 const VPA = /^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z]{2,64}$/
 const LN_ADDRESS = /^[a-z0-9._\-+]+@[a-z0-9.\-]+\.[a-z]{2,}$/i
 const HEX64 = /^[0-9a-f]{64}$/
+// Highest UPI limit for a single payment is ₹5 lakh.
+export const MAX_INR = 500000
 
 const now = () => Math.floor(Date.now() / 1000)
 
@@ -76,7 +78,7 @@ export function offer({ vpa, payee, inr, sats, mint, receive, note, ttl = 3600 }
   if (!VPA.test(vpa || '')) fail('vpa')
   positiveInt(sats, 'sats')
   const amount = Number(inr)
-  if (!(amount > 0) || Math.round(amount * 100) !== amount * 100) fail('inr')
+  if (!(amount > 0) || amount > MAX_INR || Math.round(amount * 100) !== amount * 100) fail('inr')
   const m = checkMint(mint)
   const tags = [
     ['inr', amount.toFixed(2)],
@@ -138,14 +140,16 @@ export function parse(ev) {
   const base = { id: ev.id, pubkey: ev.pubkey, created_at: ev.created_at, kind: ev.kind }
 
   if (ev.kind === KIND.OFFER) {
-    if (!body.upi?.pa || !Number.isInteger(body.sats)) return null
+    if (!VPA.test(body.upi?.pa || '') || !Number.isInteger(body.sats) || body.sats <= 0) return null
+    const inr = Number(body.upi.am)
+    if (!Number.isFinite(inr) || inr <= 0 || inr > MAX_INR) return null
     const exp = Number(tag('expiration'))
     return {
       ...base,
       type: 'offer',
       vpa: body.upi.pa,
       payee: body.upi.pn,
-      inr: Number(body.upi.am),
+      inr,
       sats: body.sats,
       mint: body.mint,
       receive: body.receive,

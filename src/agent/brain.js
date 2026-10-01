@@ -120,5 +120,10 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
     return reply(a.phase === 'claimed' ? 'Reply "paid" or "skip".' : 'Reply "got" or "no".')
   }
 
-  return { onBoard, onOwnerMessage, state }
+  // The claim never reached a relay: forget it so the owner isn't told to pay.
+  function claimFailed() {
+    if (state.active?.phase === 'claimed' && !state.active.claimId) state.active = null
+  }
+
+  return { onBoard, onOwnerMessage, claimFailed, state }
 }

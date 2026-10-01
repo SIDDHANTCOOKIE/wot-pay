@@ -62,12 +62,35 @@ export function useBoard(trustRoot, me) {
     [trustRoot, me, trust, all],
   )
 
-  // Show an event locally right away, then send it.
+  // Relay reachability, so an empty board never hides a dead connection.
+  const [relaysUp, setRelaysUp] = useState(null)
+  useEffect(() => {
+    const tick = () => setRelaysUp(navigator.onLine === false ? 0 : client.connected())
+    const id = setInterval(tick, 3000)
+    const first = setTimeout(tick, 1500)
+    return () => {
+      clearInterval(id)
+      clearTimeout(first)
+    }
+  }, [client])
+
+  // Show an event locally right away, then send it. If no relay takes it,
+  // take it back off the screen so nothing looks sent that wasn't.
   async function publish(signed) {
     const p = parse(signed)
     if (p) setEvents((prev) => new Map(prev).set(p.id, p))
-    return client.publish(signed)
+    try {
+      return await client.publish(signed)
+    } catch (e) {
+      if (p)
+        setEvents((prev) => {
+          const next = new Map(prev)
+          next.delete(p.id)
+          return next
+        })
+      throw e.name === 'TokenLeakError' ? e : new Error('No relay accepted it. Nothing was sent, try again.')
+    }
   }
 
-  return { client, events: all, ranker, names, publish, trustLoading: trust.loading }
+  return { client, events: all, ranker, names, publish, relaysUp, total: client.relays.length, trustLoading: trust.loading }
 }

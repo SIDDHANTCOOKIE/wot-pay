@@ -9,10 +9,11 @@ export function parseUpi(text) {
   const cu = params.get('cu')
   if (cu && cu.toUpperCase() !== 'INR') return null
   const am = Number(params.get('am'))
+  const okAmount = Number.isFinite(am) && am > 0 && am <= 500000
   return {
     vpa: pa,
     payee: params.get('pn')?.trim() || undefined,
-    inr: am > 0 ? Math.round(am * 100) / 100 : undefined,
+    inr: okAmount ? Math.round(am * 100) / 100 : undefined,
     note: params.get('tn')?.trim() || undefined,
   }
 }

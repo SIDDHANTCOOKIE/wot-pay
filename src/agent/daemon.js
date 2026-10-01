@@ -4,6 +4,7 @@
 // It claims offers from people the owner follows, DMs the owner (NIP-17) to
 // pay by UPI, and stamps the trade once the owner confirms. Sats go to the
 // owner's own address. The agent holds no sats and never opens a UPI app.
+import './websocket.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
@@ -59,13 +60,18 @@ async function run(actions) {
         log('dm ->', a.text.split('\n')[0])
       } else {
         const signed = finalizeEvent(a.template, sk)
+        await client.publish(signed)
         const p = parse(signed)
         if (p) events.set(p.id, p)
-        await client.publish(signed)
         log(a.type, signed.id.slice(0, 8))
       }
     } catch (e) {
       log('failed', a.type, e.message)
+      if (a.type === 'claim') {
+        // Don't tell the owner to pay for a claim nobody saw.
+        brain.claimFailed()
+        return
+      }
     }
   }
 }

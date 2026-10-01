@@ -15,7 +15,9 @@ export function readToken(text) {
   if (!m) return null
   try {
     const meta = getTokenMetadata(m[0])
-    return { token: m[0], mint: meta.mint, amount: Number(meta.amount), unit: meta.unit || 'sat' }
+    const amount = Number(meta.amount)
+    if (!Number.isInteger(amount) || amount <= 0) return null
+    return { token: m[0], mint: meta.mint, amount, unit: meta.unit || 'sat' }
   } catch {
     return null
   }
@@ -42,4 +44,13 @@ export function openToken(wrap, sk) {
   const t = readToken(rumor.content)
   if (!offerId || !HEX64.test(offerId) || !t) return null
   return { id: wrap.id, from: rumor.pubkey, offerId, created_at: rumor.created_at, ...t }
+}
+
+// Problems with a token for a given offer, as short strings. Empty = fine.
+export function tokenIssues(t, { sats, mint } = {}) {
+  const out = []
+  if (t.unit !== 'sat') out.push(`in ${t.unit}, not sats`)
+  if (sats && t.amount < sats) out.push(`${(sats - t.amount).toLocaleString('en-IN')} sats short`)
+  if (mint && t.mint.replace(/\/$/, '') !== mint.replace(/\/$/, '')) out.push('not the mint they asked for')
+  return out
 }
