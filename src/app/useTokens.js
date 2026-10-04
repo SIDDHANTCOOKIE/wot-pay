@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 // Cashu tokens sent to us (or by us) over NIP-17, matched to offers by id.
 export function useTokens(client, signer) {
   const [tokens, setTokens] = useState([])
-  const supported = !!signer.wrapToken
+  const supported = !!signer?.wrapToken
 
   const add = (t) => setTokens((prev) => (prev.some((x) => x.id === t.id) ? prev : [...prev, t]))
 
