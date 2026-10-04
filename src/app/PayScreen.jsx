@@ -63,7 +63,14 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
     setError('')
     try {
       const m = mint.trim() || undefined
-      const t = offerEvent({ vpa: draft.vpa, payee: draft.payee, inr: amount, sats: total, mint: m, note: draft.note })
+      const t = offerEvent({
+        vpa: draft.vpa,
+        payee: draft.payee,
+        inr: amount,
+        sats: total,
+        mint: m,
+        note: draft.note,
+      })
       const signed = await signer.sign(t)
       prefs.setMint(mint.trim())
       await board.publish(signed)
@@ -89,7 +96,13 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
         <span>Amount</span>
         <div className="amount">
           <span>₹</span>
-          <input inputMode="decimal" value={inr} onChange={(e) => setInr(e.target.value)} placeholder="0" autoFocus={!draft.inr} />
+          <input
+            inputMode="decimal"
+            value={inr}
+            onChange={(e) => setInr(e.target.value)}
+            placeholder="0"
+            autoFocus={!draft.inr}
+          />
         </div>
       </label>
 
@@ -105,7 +118,9 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
           <span>sats</span>
         </div>
         <small className="dim">
-          {price ? `At ${rupees(Math.round(price))}/BTC. Add a little extra to get picked faster.` : 'Price unavailable, enter sats yourself.'}
+          {price
+            ? `At ${rupees(Math.round(price))}/BTC. Add a little extra to get picked faster.`
+            : 'Price unavailable, enter sats yourself.'}
         </small>
       </label>
 
@@ -119,7 +134,9 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
           autoCorrect="off"
           inputMode="url"
         />
-        <small className="dim">Shown on the offer so people know where the ecash comes from. Only the URL is public.</small>
+        <small className="dim">
+          Shown on the offer so people know where the ecash comes from. Only the URL is public.
+        </small>
       </label>
 
       {error && <p className="hint warn">{error}</p>}
@@ -131,7 +148,9 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
           {busy ? 'Posting…' : `Post for ${amount > 0 ? rupees(amount) : '₹0'}`}
         </button>
       </div>
-      <p className="fine">Posted to public Nostr relays. Your web of trust sees it first. No sats move until you send them.</p>
+      <p className="fine">
+        Posted to public Nostr relays. Your web of trust sees it first. No sats move until you send them.
+      </p>
     </section>
   )
 }
@@ -162,6 +181,10 @@ function Live({ board, signer, offer, onDone }) {
   return (
     <section className="screen">
       <Steps at={step} labels={['Scan', 'Post', 'Paid', 'Settle']} />
+      <Copy
+        text={`${location.origin}${location.pathname}#offer/${offer.id}`}
+        label="Copy public offer link"
+      />
       <div className="card summary">
         <div className="big">{rupees(offer.inr)}</div>
         <div className="dim">
@@ -202,8 +225,12 @@ function Live({ board, signer, offer, onDone }) {
               </a>
             </div>
           )}
-          {receive?.method === 'cashu' && <SendToken board={board} signer={signer} offer={offer} claim={claim} />}
-          {state.claims.length > 1 && <p className="dim">{state.claims.length - 1} more waiting behind them.</p>}
+          {receive?.method === 'cashu' && (
+            <SendToken board={board} signer={signer} offer={offer} claim={claim} />
+          )}
+          {state.claims.length > 1 && (
+            <p className="dim">{state.claims.length - 1} more waiting behind them.</p>
+          )}
           {error && <p className="hint warn">{error}</p>}
           <div className="actions">
             <button className="btn ghost danger" disabled={busy} onClick={() => stamp('disputed')}>
@@ -219,7 +246,13 @@ function Live({ board, signer, offer, onDone }) {
       {makerStamp && (
         <div className={`card done ${makerStamp.type}`}>
           <SettleMark ok={makerStamp.type === 'settled'} />
-          <div className="hero-word">{makerStamp.type === 'settled' ? 'Settled.' : 'Disputed.'}</div>
+          <div className="hero-word">
+            {makerStamp.type === 'settled'
+              ? state.status === 'settled'
+                ? 'Settled.'
+                : 'You stamped settled.'
+              : 'Disputed.'}
+          </div>
           <div className="dim">
             {state.takerStamp
               ? `They stamped ${state.takerStamp.type} too.`
@@ -245,13 +278,17 @@ function SendToken({ board, signer, offer, claim }) {
   const issues = t ? tokenIssues(t, { sats: offer.sats, mint: want }) : []
   const wrongUnit = t && t.unit !== 'sat'
 
-  if (!board.cash.supported) return <p className="hint warn">They want Cashu. Private DMs need the key on this device.</p>
+  if (!board.cash.supported)
+    return <p className="hint warn">They want Cashu. Private DMs need the key on this device.</p>
 
   if (sent.length)
     return (
       <div className="tokenbox sent">
-        <div>✓ Sent {sats(sent.reduce((n, x) => n + x.amount, 0))} as ecash by private DM</div>
-        <small className="dim">Only they can open it. Nothing about the token is public.</small>
+        <div>✓ Sent {sats(sent.reduce((n, x) => n + x.amount, 0))} as a token by private DM</div>
+        <small className="dim">
+          Encrypted delivery acknowledged by a relay. Redemption is not verified here; you also retain the
+          token.
+        </small>
       </div>
     )
 
@@ -271,19 +308,28 @@ function SendToken({ board, signer, offer, claim }) {
     <div className="tokenbox">
       <label className="field">
         <span>They want ecash{want ? ` from ${mintName(want)}` : ''}. Paste a token from your wallet.</span>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="cashuB…" rows={3} spellCheck={false} />
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="cashuB…"
+          rows={3}
+          spellCheck={false}
+        />
       </label>
       {text && !t && <p className="hint warn">That doesn’t look like a Cashu token.</p>}
       {t && (
         <div className="dim">
           {wrongUnit ? `${t.amount} ${t.unit}` : sats(t.amount)} · {mintName(t.mint)}
           {issues.map((i) => (
-            <span key={i} className="warn-text"> · {i}</span>
+            <span key={i} className="warn-text">
+              {' '}
+              · {i}
+            </span>
           ))}
         </div>
       )}
       {error && <p className="hint warn">{error}</p>}
-      <button className="btn primary wide" disabled={!t || wrongUnit || busy} onClick={go}>
+      <button className="btn primary wide" disabled={!t || issues.length > 0 || busy} onClick={go}>
         {busy ? 'Sending…' : 'Send privately'}
       </button>
     </div>
