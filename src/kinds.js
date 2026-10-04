@@ -4,6 +4,7 @@ export const KIND = {
   CLAIM: 3402,
   SETTLED: 3403,
   DISPUTED: 3404,
+  CANCEL: 5, // NIP-09 claim deletion request
 }
 
 export const KIND_NAME = Object.fromEntries(
