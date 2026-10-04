@@ -55,10 +55,28 @@ const weightOf = (dist, pk) => {
 // createRanker also accepts raw events and parses them.
 // Returns Map pubkey -> { settles, disputes } weighted by stamp author trust.
 // One stamp per (author, offer); a later stamp replaces an earlier one.
-export function tallyStamps(stamps, dist) {
+export function tallyStamps(stamps, dist, events = []) {
+  const offers = new Map(events.filter((e) => e.type === 'offer').map((e) => [e.id, e]))
+  const claims = new Map(events.filter((e) => e.type === 'claim').map((e) => [e.id, e]))
   const byKey = new Map()
   for (const s of stamps) {
     if (s.type !== 'settled' && s.type !== 'disputed') continue
+    const offer = offers.get(s.offerId),
+      claim = claims.get(s.claimId)
+    if (
+      !offer ||
+      !claim ||
+      claim.offerId !== offer.id ||
+      claim.maker !== offer.pubkey ||
+      claim.pubkey === offer.pubkey
+    )
+      continue
+    if (!(
+      (s.pubkey === offer.pubkey && s.counterparty === claim.pubkey) ||
+      (s.pubkey === claim.pubkey && s.counterparty === offer.pubkey)
+    ))
+      continue
+    if (s.created_at < claim.created_at || claim.created_at < offer.created_at) continue
     if (s.pubkey === s.counterparty) continue
     if (!dist.has(s.pubkey)) continue // author outside the graph: ignored
     const key = `${s.pubkey}:${s.offerId}`
@@ -84,11 +102,11 @@ export function trustScore(pk, dist, tally) {
   return (base * (1 + Math.log2(1 + t.settles))) / (1 + 3 * t.disputes)
 }
 
-export function createRanker({ viewer, followLists = [], stamps = [] }) {
+export function createRanker({ viewer, followLists = [], stamps = [], events = [] }) {
   const graph = buildGraph(followLists)
   const dist = hopDistances(graph, viewer)
   const parsed = stamps.map((s) => (s.type ? s : parse(s))).filter(Boolean)
-  const tally = tallyStamps(parsed, dist)
+  const tally = tallyStamps(parsed, dist, events.map((e) => (e.type ? e : parse(e))).filter(Boolean))
 
   const explain = (pk) => ({
     hops: dist.get(pk) ?? null,
@@ -137,5 +155,14 @@ export async function loadTrustData(query, viewer, { depth = 2, maxAuthors = 100
   }
   const known = [...new Set([viewer, ...seen, ...frontier])].slice(0, maxAuthors)
   const stamps = await queryAuthors(query, [KIND.SETTLED, KIND.DISPUTED], known)
-  return { followLists, stamps }
+  // Resolve both ends of historical receipts. Missing evidence counts nothing.
+  const parsed = stamps.map(parse).filter(Boolean)
+  const ids = [...new Set(parsed.flatMap((s) => [s.offerId, s.claimId]).filter(Boolean))].slice(0, 2000)
+  const trades = []
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    try {
+      trades.push(...(await query({ ids: ids.slice(i, i + CHUNK), kinds: [KIND.OFFER, KIND.CLAIM] })))
+    } catch {}
+  }
+  return { followLists, stamps, trades }
 }

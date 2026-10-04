@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
+import { tokenIssues } from '../dm.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
 import Orbit, { where, SettleMark } from './Orbit.jsx'
@@ -8,17 +9,52 @@ import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } 
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
 export default function BoardScreen({ board, signer }) {
-  const [openId, setOpenId] = useState(null)
+  const [openId, setOpenId] = useState(() => {
+    const match = location.hash.match(/^#offer\/([0-9a-f]{64})$/)
+    return match?.[1] || null
+  })
   const me = signer.pubkey
 
   const offers = useMemo(() => board.events.filter((e) => e.type === 'offer'), [board.events])
-  const withState = useMemo(() => offers.map((o) => ({ o, s: tradeState(o, board.events) })), [offers, board.events])
+  const withState = useMemo(
+    () => offers.map((o) => ({ o, s: tradeState(o, board.events) })),
+    [offers, board.events],
+  )
 
   const mine = withState.filter(({ s }) => s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
-  const open = board.ranker.rank(withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o))
+  const open = board.ranker.rank(
+    withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o),
+  )
 
   const current = openId && offers.find((o) => o.id === openId)
-  if (current) return <Detail board={board} signer={signer} offer={current} onBack={() => setOpenId(null)} />
+  if (openId && !current)
+    return (
+      <section className="screen">
+        <h1>Opening offer</h1>
+        <p>This public offer hasn't arrived from the relays yet. It may be old, removed or unavailable.</p>
+        <button
+          className="btn ghost"
+          onClick={() => {
+            setOpenId(null)
+            location.hash = 'board'
+          }}
+        >
+          Back to board
+        </button>
+      </section>
+    )
+  if (current)
+    return (
+      <Detail
+        board={board}
+        signer={signer}
+        offer={current}
+        onBack={() => {
+          setOpenId(null)
+          location.hash = 'board'
+        }}
+      />
+    )
 
   return (
     <section className="screen">
@@ -35,13 +71,24 @@ export default function BoardScreen({ board, signer }) {
       )}
 
       <h2>
-        Open now <span className="dim">{board.trustLoading ? '· loading your web…' : `· ${open.length}`}</span>
+        Open now{' '}
+        <span className="dim">
+          {board.relaysUp === null
+            ? '· connecting…'
+            : board.relaysUp === 0
+              ? '· offline'
+              : board.trustLoading
+                ? '· loading your web…'
+                : `· ${open.length}`}
+        </span>
       </h2>
       {open.length === 0 && (
         <div className="empty">
-          {board.relaysUp === 0
-            ? 'Can’t reach any relay right now, so the board may be missing offers. Check your connection.'
-            : 'Nothing open right now. New offers show up here live.'}
+          {board.relaysUp === null
+            ? 'Connecting to Nostr relays. Offers will appear here when they arrive.'
+            : board.relaysUp === 0
+              ? 'Can’t reach any relay right now, so the board may be missing offers. Check your connection.'
+              : 'Nothing open right now. New offers show up here live.'}
         </div>
       )}
       {open.map((o) => (
@@ -81,15 +128,18 @@ function Detail({ board, signer, offer, onBack }) {
   const [how, setHow] = useState(() => (board.cash.supported ? prefs.receive() : 'lightning'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [claimPending, setClaimPending] = useState(false)
   const trust = board.ranker.explain(offer.pubkey)
 
-  async function send(template) {
+  async function send(buildTemplate) {
     setBusy(true)
     setError('')
     try {
-      await board.publish(await signer.sign(template))
+      await board.publish(await signer.sign(buildTemplate()))
+      return true
     } catch (e) {
       setError(e.message.replace('invalid event: ', 'Check the '))
+      return false
     } finally {
       setBusy(false)
     }
@@ -97,20 +147,25 @@ function Detail({ board, signer, offer, onBack }) {
 
   const received = board.cash.forOffer(offer.id, offer.pubkey)
   const expired = state.status === 'expired'
-  const canClaim = !expired && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
+  const canClaim =
+    state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
 
-  const doClaim = () => {
+  const doClaim = async () => {
+    if (busy || claimPending || state.status !== 'open' || mineClaim) return
+    setClaimPending(true)
     prefs.setReceive(how)
     let receive = { method: 'cashu', mint: offer.mint }
     if (how === 'lightning') {
       prefs.setLnAddress(ln.trim())
       receive = { method: 'lightning', address: ln.trim() }
     }
-    send(claimEvent({ offerId: offer.id, maker: offer.pubkey, receive }))
+    await send(() => claimEvent({ offerId: offer.id, maker: offer.pubkey, receive }))
+    await new Promise((r) => setTimeout(r, 3000))
+    setClaimPending(false)
   }
   const stamp = (kind) => {
     const args = { offerId: offer.id, claimId: mineClaim.id, counterparty: offer.pubkey }
-    send(kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' }))
+    send(() => (kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' })))
   }
 
   const step = !mineClaim ? 0 : myStamp ? 3 : state.makerStamp ? 2 : 1
@@ -177,16 +232,35 @@ function Detail({ board, signer, offer, onBack }) {
           )}
           {error && <p className="hint warn">{error}</p>}
           <button className="btn primary wide" disabled={busy || !canClaim} onClick={doClaim}>
-            {expired ? 'This offer expired' : busy ? 'Claiming…' : 'Claim and pay'}
+            {expired
+              ? 'This offer expired'
+              : state.status !== 'open'
+                ? 'Already claimed'
+                : busy || claimPending
+                  ? 'Claiming…'
+                  : 'Claim and pay'}
           </button>
         </div>
       )}
 
-      {mineClaim && !leading && <div className="card dim">Someone claimed it before you. You’re next in line.</div>}
+      {claimPending && (
+        <div className="card dim" role="status">
+          Claim pending. Waiting for relay updates. Do not pay yet.
+        </div>
+      )}
+      {mineClaim && !leading && (
+        <div className="card hint warn" role="status">
+          Claim lost. Someone else leads this trade. Do not pay.
+        </div>
+      )}
 
-      {mineClaim && leading && !myStamp && (
+      {mineClaim && leading && !myStamp && !claimPending && (
         <div className="card">
           <p>
+            <span className="hint warn">
+              You lead in the events currently received. Relay delay can still reveal another claim. Verify
+              the maker agrees before paying.
+            </span>
             Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span>
           </p>
           <div className="actions">
@@ -197,7 +271,9 @@ function Detail({ board, signer, offer, onBack }) {
           </div>
           {received.map((t) => (
             <div key={t.id} className="tokenbox got">
-              <div className="big">{sats(t.amount)} arrived as ecash</div>
+              <div className="big">
+                {t.unit === 'sat' ? sats(t.amount) : `${t.amount} ${t.unit}`} token received
+              </div>
               <div className="dim">from {mintName(t.mint)} · private DM</div>
               <div className="actions">
                 <Copy text={t.token} label="Copy token" />
@@ -205,7 +281,14 @@ function Detail({ board, signer, offer, onBack }) {
                   Open wallet
                 </a>
               </div>
-              {t.amount < offer.sats && <p className="hint warn">{sats(offer.sats - t.amount)} less than the offer.</p>}
+              {tokenIssues(t, { sats: offer.sats, mint: mineClaim.receive?.mint }).map((issue) => (
+                <p key={issue} className="hint warn">
+                  {issue}
+                </p>
+              ))}
+              <p className="dim">
+                Redeem in your wallet before confirming. Token spendability is not checked here.
+              </p>
             </div>
           ))}
           {!received.length && (
@@ -231,7 +314,13 @@ function Detail({ board, signer, offer, onBack }) {
       {myStamp && (
         <div className={`card done ${myStamp.type}`}>
           <SettleMark ok={myStamp.type === 'settled'} />
-          <div className="hero-word">{myStamp.type === 'settled' ? 'Settled.' : 'Disputed.'}</div>
+          <div className="hero-word">
+            {myStamp.type === 'settled'
+              ? state.status === 'settled'
+                ? 'Settled.'
+                : 'You stamped settled.'
+              : 'Disputed.'}
+          </div>
           <div className="dim">Your stamp is public and counts in your web’s trust scores.</div>
           <button className="btn primary" onClick={onBack}>
             Back to board

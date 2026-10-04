@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 import { tradeState } from '../trade.js'
 import { npubShort } from './identity.js'
 import { Copy, rupees, sats, ago } from './ui.jsx'
@@ -6,6 +6,41 @@ import * as nip19 from 'nostr-tools/nip19'
 
 // Your key, how the board sees you, and every trade you touched.
 export default function ProfileScreen({ board, signer, onClose, children }) {
+  const sheet = useRef(null)
+  const titleId = useId()
+  useEffect(() => {
+    const previous = document.activeElement
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    sheet.current?.querySelector('button')?.focus()
+    return () => {
+      document.body.style.overflow = overflow
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    }
+    if (e.key !== 'Tab') return
+    const controls = [...sheet.current.querySelectorAll('button, a[href], input, textarea, select, [tabindex]')]
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length)
+    const first = controls[0], last = controls.at(-1)
+    if (!first) {
+      e.preventDefault()
+      sheet.current.focus()
+    } else if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet.current)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && (document.activeElement === last || document.activeElement === sheet.current)) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   const me = signer.pubkey
   const npub = nip19.npubEncode(me)
 
@@ -21,9 +56,9 @@ export default function ProfileScreen({ board, signer, onClose, children }) {
 
   return (
     <div className="sheet-bg" onClick={onClose}>
-      <div className="sheet tall" onClick={(e) => e.stopPropagation()}>
+      <div ref={sheet} className="sheet tall" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} onClick={(e) => e.stopPropagation()}>
         <div className="row">
-          <h2>Profile</h2>
+          <h2 id={titleId}>Profile</h2>
           <button className="btn ghost small" onClick={onClose}>
             Close
           </button>

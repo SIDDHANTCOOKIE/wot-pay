@@ -2,7 +2,7 @@
 // The agent claims offers from people its owner follows (1 hop), then DMs
 // the owner to pay by UPI. Sats go straight to the owner's own address;
 // the agent never holds sats and never touches a UPI app.
-import { claim, settled, disputed } from '../events.js'
+import { claim, settled, disputed, cancelClaim } from '../events.js'
 import { tradeState } from '../trade.js'
 import { upiLink } from '../upi.js'
 
@@ -24,8 +24,15 @@ export function rejectReason(offer, { ranker, events, me, owner, policy, now }) 
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN')}`
 const sat = (n) => `${Number(n).toLocaleString('en-IN')} sats`
 
-export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, label = 'the maker' }) {
-  const state = { paused: false, active: null, tried: new Set() }
+export function createBrain({
+  me,
+  owner,
+  lnAddress,
+  policy = DEFAULT_POLICY,
+  label = 'the maker',
+  saved = null,
+}) {
+  const state = { paused: !!saved?.paused, active: saved?.active || null, tried: new Set(saved?.tried || []) }
   const name = typeof label === 'function' ? label : () => label
 
   function onBoard({ events, ranker, now = Math.floor(Date.now() / 1000) }) {
@@ -33,7 +40,10 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
     if (a) return follow(a, events)
     if (state.paused) return []
 
-    const offers = ranker.rank(events.filter((e) => e.type === 'offer' && !state.tried.has(e.id)), now)
+    const offers = ranker.rank(
+      events.filter((e) => e.type === 'offer' && !state.tried.has(e.id)),
+      now,
+    )
     const pick = offers.find((o) => !rejectReason(o, { ranker, events, me, owner, policy, now }))
     if (!pick) return []
 
@@ -44,7 +54,11 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
     return [
       {
         type: 'claim',
-        template: claim({ offerId: pick.id, maker: pick.pubkey, receive: { method: 'lightning', address: lnAddress } }),
+        template: claim({
+          offerId: pick.id,
+          maker: pick.pubkey,
+          receive: { method: 'lightning', address: lnAddress },
+        }),
       },
       {
         type: 'dm',
@@ -58,17 +72,27 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
 
   function follow(a, events) {
     const st = tradeState(a.offer, events)
+    if (a.phase === 'stamping' || a.phase === 'releasing') return []
     const mine = st.claims.find((c) => c.pubkey === me)
     if (!mine) return []
     a.claimId = mine.id
+    a.claim = mine
 
     if (st.claim && st.claim.pubkey !== me) {
-      state.active = null
-      return [{ type: 'dm', text: `Someone else got the ${inr(a.offer.inr)} trade first.${a.phase === 'paid' ? ' You already paid: tell me "no" if the sats never come.' : ' Don’t pay it.'}` }]
+      if (a.phase === 'paid' || a.phase === 'lost-paid') {
+        if (a.phase === 'lost-paid') return []
+        a.phase = 'lost-paid'
+      } else state.active = null
+      return [
+        {
+          type: 'dm',
+          text: `Someone else got the ${inr(a.offer.inr)} trade first.${a.phase === 'lost-paid' ? ' You already paid: tell me "no" if the sats never come.' : ' Don’t pay it.'}`,
+        },
+      ]
     }
     if (st.makerStamp && a.told !== st.makerStamp.id) {
       a.told = st.makerStamp.id
-      a.phase = 'confirm'
+      a.phase = a.phase === 'paid' || a.phase === 'lost-paid' ? 'confirm' : 'unpaid-confirm'
       return [
         {
           type: 'dm',
@@ -83,7 +107,9 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
   }
 
   function onOwnerMessage(raw) {
-    const cmd = (String(raw).toLowerCase().match(/[a-z]+/) || [''])[0]
+    const cmd = (String(raw)
+      .toLowerCase()
+      .match(/[a-z]+/) || [''])[0]
     const a = state.active
     const reply = (text) => [{ type: 'dm', text }]
 
@@ -96,25 +122,54 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
       return reply(`Back on. Watching for offers up to ${inr(policy.maxInr)} from people you follow.`)
     }
     if (cmd === 'status') {
-      if (!a) return reply(state.paused ? 'Paused, nothing open.' : `Watching. Up to ${inr(policy.maxInr)}, people you follow only.`)
+      if (!a)
+        return reply(
+          state.paused
+            ? 'Paused, nothing open.'
+            : `Watching. Up to ${inr(policy.maxInr)}, people you follow only.`,
+        )
       return reply(`${inr(a.offer.inr)} to ${a.offer.vpa} for ${sat(a.offer.sats)}: ${a.phase}.`)
     }
     if (!a) return reply('Nothing open. Commands: status, pause, resume.')
 
-    if (cmd === 'paid' && a.phase === 'claimed') {
+    if (cmd === 'paid' && ['claimed', 'unpaid-confirm'].includes(a.phase)) {
       a.phase = 'paid'
       return reply('Noted. I’ll tell you when the sats are on their way.')
     }
     if (cmd === 'skip' && a.phase === 'claimed') {
-      state.active = null
-      return reply('Dropped. Don’t pay it.')
+      if (!a.claimId) return reply('Claim is still pending. Wait for confirmation before skipping.')
+      a.phase = 'releasing'
+      return [
+        {
+          type: 'cancel',
+          template: cancelClaim({ offerId: a.offer.id, claimId: a.claimId }),
+          completeTrade: true,
+        },
+        { type: 'dm', text: 'Claim release published. Don’t pay it.' },
+      ]
     }
-    if ((cmd === 'got' || cmd === 'no') && a.phase !== 'claimed' && a.claimId) {
-      state.active = null
+    if (
+      (cmd === 'got' || cmd === 'no') &&
+      ['paid', 'confirm', 'lost-paid', 'stamping', 'releasing'].includes(a.phase) &&
+      a.claimId
+    ) {
+      if (a.phase === 'stamping' || a.phase === 'releasing')
+        return reply('Previous update is queued. Waiting for relay confirmation.')
+      a.phase = 'stamping'
       const args = { offerId: a.offer.id, claimId: a.claimId, counterparty: a.offer.pubkey }
       return [
-        { type: 'stamp', template: cmd === 'got' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' }) },
-        { type: 'dm', text: cmd === 'got' ? 'Stamped settled. Watching for the next one.' : 'Stamped disputed. Watching for the next one.' },
+        {
+          type: 'stamp',
+          completeTrade: true,
+          template: cmd === 'got' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' }),
+        },
+        {
+          type: 'dm',
+          text:
+            cmd === 'got'
+              ? 'Stamped settled. Watching for the next one.'
+              : 'Stamped disputed. Watching for the next one.',
+        },
       ]
     }
     return reply(a.phase === 'claimed' ? 'Reply "paid" or "skip".' : 'Reply "got" or "no".')
@@ -125,5 +180,14 @@ export function createBrain({ me, owner, lnAddress, policy = DEFAULT_POLICY, lab
     if (state.active?.phase === 'claimed' && !state.active.claimId) state.active = null
   }
 
-  return { onBoard, onOwnerMessage, claimFailed, state }
+  return {
+    onBoard,
+    onOwnerMessage,
+    claimFailed,
+    state,
+    snapshot: () => ({ paused: state.paused, active: state.active, tried: [...state.tried] }),
+    completed: () => {
+      state.active = null
+    },
+  }
 }

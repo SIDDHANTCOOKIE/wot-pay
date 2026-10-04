@@ -15,8 +15,8 @@ export function readToken(text) {
   if (!m) return null
   try {
     const meta = getTokenMetadata(m[0])
-    const amount = Number(meta.amount)
-    if (!Number.isInteger(amount) || amount <= 0) return null
+    const amount = typeof meta.amount?.toNumber === 'function' ? meta.amount.toNumber() : Number(meta.amount)
+    if (!Number.isSafeInteger(amount) || amount <= 0) return null
     return { token: m[0], mint: meta.mint, amount, unit: meta.unit || 'sat' }
   } catch {
     return null
@@ -42,7 +42,7 @@ export function openToken(wrap, sk) {
   const subject = rumor.tags.find((t) => t[0] === 'subject')?.[1] || ''
   const offerId = subject.startsWith(SUBJECT) ? subject.slice(SUBJECT.length) : null
   const t = readToken(rumor.content)
-  if (!offerId || !HEX64.test(offerId) || !t) return null
+  if (rumor.kind !== 14 || !offerId || !HEX64.test(offerId) || !t) return null
   return { id: wrap.id, from: rumor.pubkey, offerId, created_at: rumor.created_at, ...t }
 }
 

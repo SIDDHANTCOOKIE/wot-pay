@@ -7,6 +7,7 @@ export default function Scanner({ onResult }) {
   const video = useRef(null)
   const [error, setError] = useState('')
   const [manual, setManual] = useState('')
+  const [camera, setCamera] = useState('starting')
 
   useEffect(() => {
     let done = false
@@ -25,7 +26,14 @@ export default function Scanner({ onResult }) {
       },
       { preferredCamera: 'environment', highlightScanRegion: true, returnDetailedScanResult: true },
     )
-    scanner.start().catch(() => setError('No camera here. Type the UPI ID instead.'))
+    scanner.start()
+      .then(() => { if (!done) setCamera('ready') })
+      .catch(() => {
+        if (!done) {
+          setCamera('unavailable')
+          setError('Camera unavailable. Enter a UPI ID below to keep going.')
+        }
+      })
     return () => {
       done = true
       scanner.destroy()
@@ -42,16 +50,23 @@ export default function Scanner({ onResult }) {
 
   return (
     <div className="scanner">
-      <div className="viewfinder">
+      <div className={`viewfinder ${camera === 'unavailable' ? 'camera-off' : ''}`}>
         <video ref={video} muted playsInline />
-        <div className="frame" />
+        {camera !== 'unavailable' && <div className="frame" />}
+        {camera !== 'ready' && (
+          <div className="camera-fallback" role="status">
+            <span className="camera-fallback-mark">₹</span>
+            <span>{camera === 'unavailable' ? 'Continue without scanning' : 'Starting camera…'}</span>
+          </div>
+        )}
       </div>
-      {error && <p className="hint warn">{error}</p>}
+      {error && <p className="hint warn" role="status">{error}</p>}
       <form className="manual" onSubmit={submitManual}>
         <input
           value={manual}
           onChange={(e) => setManual(e.target.value)}
-          placeholder="or type a UPI ID"
+          placeholder="name@okaxis"
+          aria-label="UPI ID"
           autoCapitalize="none"
           autoCorrect="off"
         />

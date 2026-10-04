@@ -12,7 +12,7 @@ import { APP_TAG } from './kinds.js'
 const M = 'm'.repeat(64), T1 = '1'.repeat(64), T2 = '2'.repeat(64)
 const off = (extra = {}) => ({ type: 'offer', id: 'o', pubkey: M, created_at: 1, ...extra })
 const cl = (id, pubkey, created_at) => ({ type: 'claim', id, pubkey, offerId: 'o', maker: M, created_at })
-const st = (type, pubkey, claimId, created_at, id = `${type}-${created_at}`) => ({ type, id, pubkey, offerId: 'o', claimId, created_at })
+const st = (type, pubkey, claimId, created_at, id = `${type}-${created_at}`) => ({ type, id, pubkey, offerId: 'o', claimId, created_at, counterparty: pubkey === M ? (claimId === 'bbb' ? T2 : T1) : M })
 
 describe('racing claims', () => {
   it('two claims in the same second: every device picks the same leader', () => {

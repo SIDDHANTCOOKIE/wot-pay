@@ -7,7 +7,7 @@ const DAY = 24 * 3600
 
 // Live view of the board: every app event from the last day, the viewer's
 // trust data, and profile names.
-export function useBoard(trustRoot, me) {
+export function useBoard(trustRoot, me, revision = 0) {
   const client = useMemo(() => createRelayClient(), [])
   const [events, setEvents] = useState(() => new Map())
   const [trust, setTrust] = useState({ followLists: [], stamps: [], loading: true })
@@ -16,6 +16,17 @@ export function useBoard(trustRoot, me) {
 
   useEffect(() => {
     const since = Math.floor(Date.now() / 1000) - DAY
+    const linked = location.hash.match(/^#offer\/([0-9a-f]{64})$/)?.[1]
+    if (linked)
+      Promise.all([client.query({ ids: [linked] }), client.query({ '#e': [linked] })])
+        .then((groups) => {
+          const list = groups.flat()
+          for (const ev of list) {
+            const p = parse(ev)
+            if (p) setEvents((prev) => new Map(prev).set(p.id, p))
+          }
+        })
+        .catch(() => {})
     const stop = client.subscribe({ since }, (ev) => {
       const p = parse(ev)
       if (!p) return
@@ -32,11 +43,13 @@ export function useBoard(trustRoot, me) {
     return () => {
       live = false
     }
-  }, [client, trustRoot])
+  }, [client, trustRoot, revision])
 
   // Fetch kind-0 names for authors we haven't looked up yet.
   useEffect(() => {
-    const want = [...new Set([...events.values()].map((e) => e.pubkey))].filter((pk) => !asked.current.has(pk))
+    const want = [...new Set([...events.values()].map((e) => e.pubkey))].filter(
+      (pk) => !asked.current.has(pk),
+    )
     if (!want.length) return
     want.forEach((pk) => asked.current.add(pk))
     client.query({ kinds: [0], authors: want }).then((list) => {
@@ -44,7 +57,8 @@ export function useBoard(trustRoot, me) {
       for (const ev of list) {
         try {
           const m = JSON.parse(ev.content)
-          out[ev.pubkey] = m.display_name || m.name
+          const name = m.display_name || m.name
+          if (typeof name === 'string' && name.length <= 256) out[ev.pubkey] = name
         } catch {}
       }
       setNames((n) => ({ ...n, ...out }))
@@ -57,6 +71,7 @@ export function useBoard(trustRoot, me) {
       createRanker({
         viewer: [trustRoot, me],
         followLists: trust.followLists,
+        events: [...(trust.trades || []), ...all],
         stamps: [...trust.stamps, ...all.filter((e) => e.type === 'settled' || e.type === 'disputed')],
       }),
     [trustRoot, me, trust, all],
@@ -92,5 +107,14 @@ export function useBoard(trustRoot, me) {
     }
   }
 
-  return { client, events: all, ranker, names, publish, relaysUp, total: client.relays.length, trustLoading: trust.loading }
+  return {
+    client,
+    events: all,
+    ranker,
+    names,
+    publish,
+    relaysUp,
+    total: client.relays.length,
+    trustLoading: trust.loading,
+  }
 }

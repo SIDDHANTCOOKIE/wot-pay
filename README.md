@@ -1,116 +1,123 @@
-# wot-pay
+<div align="center">
 
-**Track: Freedom Stack (Nostr + Ecash) — BOSS Battle, Bitshala**
+<img src="docs/banner.svg" alt="wot-pay: signed coordination, explicit trust" width="100%" />
 
-## Team
+**scan a UPI QR. let your web of trust do the matching. settle in sats.**
 
-- siddhant
+[Live demo](https://wot-pay.vercel.app/) · [Phone checklist](docs/device-checklist.md) · [MIT](LICENSE)
 
-## Problem
+Freedom Stack (Nostr + Ecash) · BOSS Battle, Bitshala · built by siddhant
 
-UPI moves rupees between people every day, instantly, with no fee — but it is
-fully intermediated (NPCI, KYC'd banks) and cannot move sats. Someone with a
-UPI QR (a stall, a bill, a person) and someone willing to pay it in sats have
-no shared rail. Existing bridges (OpenPleb and similar) solve this by running
-an operator: a server, a mint, a dispute process that can see and revoke.
+</div>
 
-## Approach
+![App screens using sample data](docs/3-screens.png)
 
-A Nostr client, not a bank. Scan a UPI QR, decode `pa` / `pn` / `am`, publish
-an `offer` event to public relays. Someone in your web of trust claims it,
-pays the VPA directly in GPay/PhonePe, and the maker sends sats — from their
-own Lightning or Cashu wallet. Both sides stamp `settled` or `disputed` as
-Nostr events. The feed ranks by follows, hop distance, settle count, and
-dispute history.
+*Local UI preview with sample offers, not live relay data or proof of payment.*
 
-- No backend. Four screens: create, feed, detail, profile.
-- Custom event kinds: `offer`, `claim`, `settled`, `disputed`.
-- No escrow: this client never holds sats, never verifies UTR, never touches
-  the UPI rail. Relays carry tickets; UPI carries rupees; your wallet carries
-  sats; the web of trust carries the risk.
-- Default visibility is graph-only, not a public firehose of VPAs.
+## why
 
-**Trust claim, stated precisely:** no operator can revoke, read, or rewrite
-the board. Settlement risk is not removed — it is priced by the graph. The
-UPI leg itself stays fully intermediated by NPCI and a KYC'd bank; this
-project does not change that.
+UPI and sats don't share a payment rail. I built a Nostr client that lets someone post a UPI payment request and someone else pay it in exchange for sats. No bridge server holds the funds. The trade still depends on people keeping their promises.
 
-## What is and is not finished
+This is a hackathon prototype, not ready for public money use. The live demo may be behind this branch. A production build and unit tests are not evidence of a successful real payment.
 
-_Updated as the hack window progresses — see commit history for the honest
-version of this._
+## how it works
 
-- [x] Nostr event schema (`offer`, `claim`, `settled`, `disputed`), with a
-      test that fails if a Cashu token ever reaches a public event
-- [x] Web-of-trust ranking (follows, hops, settle count, disputes)
-- [x] One end-to-end flow: scan → offer → claim → settle
-- [x] Feed / detail / profile screens
-- [x] Cashu hand-off: mint hint on offers; tokens move only as NIP-17 DMs
-- [x] Optional agent daemon (below)
-- [ ] Hosted demo URL
-
-## Setup
-
-Needs Node 22.12 or newer and npm (`node -v` to check; `nvm use` picks it up
-from `.nvmrc`). Nothing else: no database,
-no server, no API keys.
-
+```text
+scan or type UPI -> signed offer -> claim -> pay UPI externally
+                                          -> send sats externally -> both stamp
 ```
-git clone https://github.com/SIDDHANTCOOKIE/wot-upi.git
-cd wot-upi
+
+1. The maker scans a QR or types a UPI ID, sets INR and sats, and posts an offer.
+2. Share the public offer link using Copy public offer link. A recipient opens it directly on the board; no automatic message is sent to your follows.
+3. The board ranks offers using follows, hop distance and public settled/disputed stamps. It also shows people outside your graph.
+4. The taker claims and opens their UPI app. The app does not verify that payment.
+5. The maker sends Lightning from their wallet, or pastes an existing Cashu token for private delivery.
+6. Each side stamps settled or disputed. These are signed statements, not verified payment receipts.
+
+## the trust orbit
+
+The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; disputes lower it. Only stamps from authors in your graph count.
+
+Following someone is not a payment guarantee. In-graph collusion can manufacture reputation, even when the referenced signed offer and claim exist. The ranker requires trade existence and maker/taker participation, but cannot prove money changed hands. A pasted npub selects whose follows to read; it does not authenticate you as that person.
+
+Add/remove follows inside Profile under People I follow / trust. Each edit is reviewed and explicitly confirmed before publishing a merged standard Nostr follow list. It edits the signed-in identity, not a pasted third-party graph. Relay omissions can still hide the latest list.
+
+## what stays public, and what stays private
+
+- Offers include the UPI ID, payee name, amount, sats and optional mint URL. They are public on Nostr relays. Graph ranking is not access control.
+- Claims, receive hints and settled/disputed stamps are public signed events: kinds 3401, 3402, 3403 and 3404. Claim releases use signed kind-5 deletion requests.
+- Cashu tokens move as NIP-17 encrypted gift wraps, not public offer content. A token-shaped-value fence checks outgoing content and tags. It is a leak-prevention heuristic, not a guarantee against every encoded secret.
+- Signatures detect changes to an event. Relays can still read public events, refuse delivery or disappear. The app uses relay.damus.io, nos.lol and relay.primal.net; there is no relay editor in the UI.
+
+## cashu hand-off
+
+Cashu is integrated as token delivery, not as a wallet or escrow. The maker pastes a token from their own wallet. The app reads its mint, amount and unit, refuses short/wrong-unit/wrong-mint sends, encrypts it to the taker, and offers Copy token / Open wallet on receipt.
+
+The app does not mint, redeem, verify unspent proofs or lock funds. "Sent" means a relay accepted the encrypted message, not that the recipient redeemed money. The sender retains the bearer token and could spend it first. Redeem it in a compatible wallet before claiming settlement. Trust in the Cashu mint remains.
+
+Token DMs require the device-generated key. A NIP-07 extension signs public events but currently cannot wrap/open token DMs here; use Lightning for that path. Device nsec import/export and persisted signer choice are implemented. A bunker-link NIP-46 path is implemented with secure relay validation, timeout and signed-event checks, but a real external remote signer has not yet been verified. Never send your nsec in chat.
+
+## agent (optional)
+
+A separate rules-based daemon claims offers from the owner's direct follows, within an amount limit, and privately asks the owner to pay. It handles `paid`, `skip`, `got`, `no`, `status`, `pause` and `resume`. It never opens UPI or sends money. It is not hosted by the Vercel demo.
+
+```sh
+OWNER=npub1... LN_ADDRESS=you@wallet.com MAX_INR=500 npm run agent
+```
+
+The daemon has its own `.agent-key`. Active trade state and signed delivery queue persist in `.agent-state.json`, tied to the owner and agent key. Failed messages retry in order; final success waits for the stamp to publish. Skip sends a signed claim deletion request that updated clients honor. Paid-trade race recovery has local regression tests. A full real relay/owner-DM restart test is still unverified; do not leave it managing real trades unattended.
+
+## run it
+
+Node 22.12 or newer and npm. No application database, API key or backend service.
+
+```sh
+git clone https://github.com/SIDDHANTCOOKIE/wot-pay.git
+cd wot-pay
 npm ci
 npm test
 npm run dev
 ```
 
-Open http://localhost:5173. The app makes a key for you on first load.
+The browser generates a local signing key on first load. It is stored in plaintext localStorage, with an explicit export/import backup UI. Clearing site data loses that identity and access to its encrypted messages. Treat this as a demo key, not your primary wallet key.
 
-**Try a full trade on one laptop:** open the app in a normal window and in a
-private window (two different keys). In the first, type a UPI ID such as
-`shop@okaxis` under the camera, tap Use, enter an amount and post. In the
-second, open Board, tap the offer, enter any Lightning address and claim. Then
-tap "I sent the sats" in the first window and "Got the sats" in the second.
-No real money moves unless you actually pay.
+For a no-money state-flow demonstration, open a normal and private window, post using a sample UPI ID, claim with a sample Lightning address, and stamp both sides. Those buttons alone do not move or verify money. Label the demonstration simulated.
 
-**On a phone:** browsers only allow the camera on HTTPS, so
-`npm run dev` over your Wi-Fi IP opens without a camera (typing a UPI ID
-still works). For the camera, use the hosted demo, or deploy the build
-anywhere static:
+Camera access needs HTTPS on a phone. Use the [live demo](https://wot-pay.vercel.app/) and [phone checklist](docs/device-checklist.md). Use a test mint for ecash demonstrations and do not pay a real UPI request without deciding to spend that money.
 
-```
-npm run build        # outputs dist/
-npm run preview      # serves dist/ on port 4173
+```sh
+npm run build   # dist/
+npm run preview
 ```
 
-**Check the relays:** `npm run smoke` publishes one event of each kind with a
-throwaway key and reads them back. Relays live in `src/kinds.js`.
+`npm run smoke` publishes public test events with throwaway keys and reads them back. It is not read-only and does not test payment settlement.
 
-## Agent (optional)
+## validation status
 
-A small daemon that watches the board for you. It claims offers from people
-you follow (1 hop, up to `MAX_INR`), DMs you over NIP-17 to pay the UPI QR,
-and stamps the trade when you reply. Sats go to your own Lightning address;
-the agent never holds sats and never opens a UPI app.
+- Main: 75 unit tests and production build passed in the October 4 review.
+- Design-v2-focus: 99 unit tests and production build passed before these hardening changes.
+- This branch: 136 unit tests and production build passed. It adds malformed-event, paise and matched-stamp regression tests. It includes a screen error fallback and catches invalid claim construction.
+- No verified full phone UPI/Lightning payment or real Cashu redemption is recorded in this review. Browser/helper mocks are not an end-to-end payment test.
+- Demo video: not recorded/linked yet. Hosted demo exists; branch-only work is not automatically live.
 
-```
-OWNER=npub1... LN_ADDRESS=you@wallet.com MAX_INR=500 npm run agent
-```
+## where trust remains
 
-Talk to it from any NIP-17 client (0xchat, Amethyst): `paid`, `skip`,
-`got`, `no`, `status`, `pause`, `resume`. Its key is kept in `.agent-key`.
+| Dependency | What can still go wrong |
+| --- | --- |
+| Counterparty | Pays or sends nothing, lies in a stamp, races claims |
+| UPI bank / NPCI | INR leg stays fully intermediated; this app cannot change that |
+| Cashu mint | Redemption depends on the selected mint |
+| Nostr relays | Read public data, censor, omit history, go offline |
+| Static host / browser | Availability and integrity of delivered code; local key storage |
 
-## Demo video
+There is no atomic swap, UTR verification, custody or escrow. Deterministic claim ordering only agrees when devices see the same events. A pending/lost claim is visible and payment links are withheld while pending, but the settling buffer is not finality. The browser loads one day of board events; recovery of older trades is limited. Settlement risk is made visible, not removed or economically measured.
 
-_Linked here once recorded._
+## next
 
-## Known limitations
+Before submission: test the chosen deployed build on two devices, redeem a test-mint token, record the demo and save the submission receipt.
 
-- We do not verify UTR. A payer can pay UPI and never receive sats; mitigated
-  by small amounts, 1-hop-first defaults, and public dispute stamps — not
-  eliminated.
-- We are a client, not an operator, and not a bank.
-- Ecash DMs need the key made on the device. With a browser extension
-  signer, claim with Lightning instead.
-- If the agent's owner replies `skip` after a claim, the claim stays first in
-  line; the maker has to mark it not paid. The agent also forgets an open
-  trade if it restarts.
+After that: real bunker/phone/daemon restart validation, stronger settlement proof, safer key storage, relay choice and longer history. Optional optimistic escrow for the sats leg remains an unbuilt stretch, not a feature of this submission.
+
+## license
+
+MIT. See [LICENSE](LICENSE).
