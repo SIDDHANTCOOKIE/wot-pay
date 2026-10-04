@@ -25,8 +25,28 @@ function fail(msg) {
   throw new Error(`invalid event: ${msg}`)
 }
 
+function text(value, name, max = 1000) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > max) fail(`${name} must be text up to ${max} characters`)
+  return value
+}
+
+function checkAmount(value) {
+  const amount = Number(value),
+    paise = amount * 100
+  if (
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    amount > MAX_INR ||
+    Math.abs(paise - Math.round(paise)) > 1e-7
+  )
+    fail('inr')
+  return Math.round(paise) / 100
+}
+
 function checkMint(mint) {
   if (mint === undefined) return undefined
+  text(mint, 'mint', 2048)
   let u
   try {
     u = new URL(mint)
@@ -39,8 +59,10 @@ function checkMint(mint) {
 
 function checkReceive(r) {
   if (r === undefined) return undefined
+  if (!r || typeof r !== 'object' || Array.isArray(r)) fail('receive')
   if (r.method === 'lightning') {
-    if (!LN_ADDRESS.test(r.address || '')) fail('receive.address must be a lightning address')
+    if (typeof r.address !== 'string' || r.address.length > 320 || !LN_ADDRESS.test(r.address))
+      fail('receive.address must be a lightning address')
     return { method: 'lightning', address: r.address }
   }
   if (r.method === 'cashu') {
@@ -57,7 +79,7 @@ function checkId(id, name) {
 }
 
 function positiveInt(n, name) {
-  if (!Number.isInteger(n) || n <= 0) fail(`${name} must be a positive integer`)
+  if (!Number.isSafeInteger(n) || n <= 0) fail(`${name} must be a positive integer`)
   return n
 }
 
@@ -77,8 +99,9 @@ const strip = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !=
 export function offer({ vpa, payee, inr, sats, mint, receive, note, ttl = 3600 }) {
   if (!VPA.test(vpa || '')) fail('vpa')
   positiveInt(sats, 'sats')
-  const amount = Number(inr)
-  if (!(amount > 0) || amount > MAX_INR || Math.round(amount * 100) !== amount * 100) fail('inr')
+  const amount = checkAmount(inr)
+  text(payee, 'payee', 256)
+  text(note, 'note')
   const m = checkMint(mint)
   const tags = [
     ['inr', amount.toFixed(2)],
@@ -100,6 +123,7 @@ export function offer({ vpa, payee, inr, sats, mint, receive, note, ttl = 3600 }
 }
 
 export function claim({ offerId, maker, mint, receive, note }) {
+  text(note, 'note')
   return template(
     KIND.CLAIM,
     [
@@ -111,6 +135,8 @@ export function claim({ offerId, maker, mint, receive, note }) {
 }
 
 function stamp(kind, { offerId, claimId, counterparty, note, reason }) {
+  text(note, 'note')
+  text(reason, 'reason')
   const tags = [['e', checkId(offerId, 'offerId'), '', 'root']]
   if (claimId) tags.push(['e', checkId(claimId, 'claimId'), '', 'reply'])
   tags.push(['p', checkId(counterparty, 'counterparty')])
@@ -124,52 +150,95 @@ export function disputed(args) {
   return stamp(KIND.DISPUTED, args)
 }
 
+export function cancelClaim({ offerId, claimId }) {
+  return template(
+    KIND.CANCEL,
+    [
+      ['e', checkId(claimId, 'claimId')],
+      ['k', String(KIND.CLAIM)],
+      ['e', checkId(offerId, 'offerId'), '', 'root'],
+    ],
+    {},
+  )
+}
+
 // Parse a received event into a plain object. Returns null on anything malformed.
 export function parse(ev) {
-  if (!ev || !Object.values(KIND).includes(ev.kind)) return null
-  if (!ev.tags?.some((t) => t[0] === 't' && t[1] === APP_TAG)) return null
-  let body
   try {
-    body = JSON.parse(ev.content)
-  } catch {
-    return null
-  }
-  if (!body || body.v !== SCHEMA_VERSION) return null
-  const tag = (name, marker) =>
-    ev.tags.find((t) => t[0] === name && (marker === undefined || t[3] === marker))?.[1]
-  const base = { id: ev.id, pubkey: ev.pubkey, created_at: ev.created_at, kind: ev.kind }
-
-  if (ev.kind === KIND.OFFER) {
-    if (!VPA.test(body.upi?.pa || '') || !Number.isInteger(body.sats) || body.sats <= 0) return null
-    const inr = Number(body.upi.am)
-    if (!Number.isFinite(inr) || inr <= 0 || inr > MAX_INR) return null
-    const exp = Number(tag('expiration'))
+    if (!ev || !Object.values(KIND).includes(ev.kind)) return null
+    if (!HEX64.test(ev.id || '') || !HEX64.test(ev.pubkey || '')) return null
+    if (!Number.isSafeInteger(ev.created_at) || ev.created_at < 0) return null
+    if (typeof ev.content !== 'string' || ev.content.length > 16000) return null
+    if (
+      !Array.isArray(ev.tags) ||
+      ev.tags.length > 64 ||
+      !ev.tags.every(
+        (t) => Array.isArray(t) && t.length <= 8 && t.every((v) => typeof v === 'string' && v.length <= 2048),
+      )
+    )
+      return null
+    if (!ev.tags.some((t) => t[0] === 't' && t[1] === APP_TAG)) return null
+    const body = JSON.parse(ev.content)
+    if (!body || typeof body !== 'object' || Array.isArray(body) || body.v !== SCHEMA_VERSION) return null
+    const tag = (name, marker) =>
+      ev.tags.find((t) => t[0] === name && (marker === undefined || t[3] === marker))?.[1]
+    const base = { id: ev.id, pubkey: ev.pubkey, created_at: ev.created_at, kind: ev.kind }
+    const note = text(body.note, 'note')
+    if (ev.kind === KIND.OFFER) {
+      if (!body.upi || typeof body.upi !== 'object' || Array.isArray(body.upi)) return null
+      if (typeof body.upi.pa !== 'string' || !VPA.test(body.upi.pa)) return null
+      if (!['number', 'string'].includes(typeof body.upi.am)) return null
+      const inr = checkAmount(body.upi.am),
+        sats = positiveInt(body.sats, 'sats')
+      const expTag = tag('expiration'),
+        expiresAt = expTag === undefined ? undefined : Number(expTag)
+      if (expiresAt !== undefined && (!Number.isSafeInteger(expiresAt) || expiresAt <= 0)) return null
+      return {
+        ...base,
+        type: 'offer',
+        vpa: body.upi.pa,
+        payee: text(body.upi.pn, 'payee', 256),
+        inr,
+        sats,
+        mint: checkMint(body.mint),
+        receive: checkReceive(body.receive),
+        note,
+        expiresAt,
+      }
+    }
+    if (ev.kind === KIND.CANCEL)
+      return {
+        ...base,
+        type: 'cancel',
+        offerId: checkId(tag('e', 'root'), 'offerId'),
+        claimId: checkId(tag('e'), 'claimId'),
+      }
+    const offerId = checkId(tag('e', 'root') || tag('e'), 'offerId'),
+      p = checkId(tag('p'), 'counterparty')
+    if (ev.kind === KIND.CLAIM)
+      return {
+        ...base,
+        type: 'claim',
+        offerId,
+        maker: p,
+        mint: checkMint(body.mint),
+        receive: checkReceive(body.receive),
+        note,
+      }
+    const claimTag = tag('e', 'reply'),
+      claimId = claimTag === undefined ? undefined : checkId(claimTag, 'claimId')
+    const reason = text(body.reason, 'reason')
+    if (ev.kind === KIND.DISPUTED && !reason) return null
     return {
       ...base,
-      type: 'offer',
-      vpa: body.upi.pa,
-      payee: body.upi.pn,
-      inr,
-      sats: body.sats,
-      mint: body.mint,
-      receive: body.receive,
-      note: body.note,
-      expiresAt: Number.isFinite(exp) ? exp : undefined,
+      type: ev.kind === KIND.SETTLED ? 'settled' : 'disputed',
+      offerId,
+      claimId,
+      counterparty: p,
+      note,
+      reason,
     }
-  }
-  const offerId = tag('e', 'root') || tag('e')
-  const p = tag('p')
-  if (!offerId || !p) return null
-  if (ev.kind === KIND.CLAIM) {
-    return { ...base, type: 'claim', offerId, maker: p, mint: body.mint, receive: body.receive, note: body.note }
-  }
-  return {
-    ...base,
-    type: ev.kind === KIND.SETTLED ? 'settled' : 'disputed',
-    offerId,
-    claimId: tag('e', 'reply'),
-    counterparty: p,
-    note: body.note,
-    reason: body.reason,
+  } catch {
+    return null
   }
 }
