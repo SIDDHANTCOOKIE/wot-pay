@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { verifyEvent } from 'nostr-tools/pure'
+import { verifyEvent, finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode, nprofileEncode } from 'nostr-tools/nip19'
 import { localSigner, extensionSigner, toHexPubkey, npubShort, prefs } from './identity.js'
 
@@ -79,14 +79,62 @@ describe('extension signing', () => {
   })
 
   it('delegates signing to the extension rather than a local key', async () => {
-    const signEvent = vi.fn().mockResolvedValue({ id: 'signed' })
-    window.nostr = { getPublicKey: async () => pubkey, signEvent }
+    const sk = generateSecretKey(),
+      pk = getPublicKey(sk)
+    const signEvent = vi.fn(async (t) => finalizeEvent(t, sk))
+    window.nostr = { getPublicKey: async () => pk, signEvent }
     const signer = await extensionSigner()
     expect(signer.kind).toBe('extension')
-    expect(signer.pubkey).toBe(pubkey)
+    expect(signer.pubkey).toBe(pk)
     const template = { kind: 1, tags: [], content: 'test', created_at: 1 }
-    expect(await signer.sign(template)).toEqual({ id: 'signed' })
+    expect(verifyEvent(await signer.sign(template))).toBe(true)
     expect(signEvent).toHaveBeenCalledWith(template)
     expect(values.size).toBe(0)
+  })
+})
+
+describe('local login and persisted signer selection', () => {
+  it('exports and imports a device key with the same identity', async () => {
+    const { exportLocalKey, importLocalKey, restoreSigner } = await import('./identity.js')
+    const pk = localSigner().pubkey,
+      key = exportLocalKey()
+    values.clear()
+    expect(importLocalKey(key).pubkey).toBe(pk)
+    expect((await restoreSigner()).pubkey).toBe(pk)
+  })
+  it('refuses npub import without replacing the old key', async () => {
+    const { importLocalKey } = await import('./identity.js')
+    const pk = localSigner().pubkey
+    expect(() => importLocalKey(npubEncode(pubkey))).toThrow()
+    expect(localSigner().pubkey).toBe(pk)
+  })
+  it('restores extension choice and refuses silent fallback when absent', async () => {
+    const { restoreSigner, saveSignerChoice } = await import('./identity.js')
+    saveSignerChoice('extension')
+    await expect(restoreSigner()).rejects.toThrow('unavailable')
+    window.nostr = { getPublicKey: async () => pubkey, signEvent: vi.fn() }
+    expect((await restoreSigner()).kind).toBe('extension')
+    saveSignerChoice('local')
+    expect((await restoreSigner()).kind).toBe('local')
+  })
+  it('rejects unsafe remote signer relay links before connecting', async () => {
+    const { connectBunker } = await import('./identity.js')
+    await expect(connectBunker(`bunker://${pubkey}?relay=ws://unsafe.example`)).rejects.toThrow('secure')
+    await expect(connectBunker('https://not-a-bunker.example')).rejects.toThrow('bunker')
+  })
+})
+
+describe('extension integrity', () => {
+  it('rejects changed events instead of publishing them', async () => {
+    const sk = generateSecretKey(),
+      pk = getPublicKey(sk)
+    window.nostr = {
+      getPublicKey: async () => pk,
+      signEvent: async (t) => finalizeEvent({ ...t, content: 'changed' }, sk),
+    }
+    const signer = await extensionSigner()
+    await expect(signer.sign({ kind: 1, created_at: 1, tags: [], content: 'intended' })).rejects.toThrow(
+      'identity changed',
+    )
   })
 })
