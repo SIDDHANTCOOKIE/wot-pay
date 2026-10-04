@@ -41,7 +41,9 @@ describe('events', () => {
   })
 
   it('links claim, settled and disputed to the offer', () => {
-    const c = parse(sign(claim({ offerId: ID, maker: pk, receive: { method: 'cashu', mint: 'https://m.example' } })))
+    const c = parse(
+      sign(claim({ offerId: ID, maker: pk, receive: { method: 'cashu', mint: 'https://m.example' } })),
+    )
     expect(c).toMatchObject({ type: 'claim', offerId: ID, maker: pk, receive: { method: 'cashu' } })
     const s = parse(sign(settled({ offerId: ID, claimId: 'b'.repeat(64), counterparty: pk })))
     expect(s).toMatchObject({ type: 'settled', offerId: ID, claimId: 'b'.repeat(64) })
@@ -56,5 +58,47 @@ describe('events', () => {
     expect(() => claim({ offerId: 'x', maker: pk })).toThrow()
     expect(() => disputed({ offerId: ID, counterparty: pk })).toThrow()
     expect(parse({ kind: 1, tags: [], content: '' })).toBeNull()
+  })
+})
+
+describe('hostile signed input and paise', () => {
+  const raw = (body, tags = [['t', 'wot-pay']]) =>
+    sign({ kind: 3401, created_at: 1, tags, content: JSON.stringify({ v: 1, ...body }) })
+  const good = { upi: { pa: 'a@upi', am: '0.29', pn: 'Shop' }, sats: 10 }
+  it.each([0.29, 1.01, 19.99, 500000])('accepts valid paise amount %s', (inr) => {
+    expect(parse(sign(offer({ vpa: 'a@upi', inr, sats: 10 }))).inr).toBe(inr)
+  })
+  it('rejects fractional paise', () => {
+    expect(() => offer({ vpa: 'a@upi', inr: 0.291, sats: 10 })).toThrow()
+    expect(parse(raw({ ...good, upi: { ...good.upi, am: '0.291' } }))).toBeNull()
+  })
+  it.each([
+    { ...good, upi: { ...good.upi, pn: { bad: true } } },
+    { ...good, mint: { bad: true } },
+    { ...good, note: [] },
+    { ...good, receive: { method: 'lightning', address: {} } },
+    { ...good, receive: { method: 'other' } },
+    { ...good, sats: Number.MAX_SAFE_INTEGER + 1 },
+    { ...good, upi: { ...good.upi, pn: 'x'.repeat(257) } },
+  ])('drops hostile field types/lengths', (body) => expect(parse(raw(body))).toBeNull())
+  it('rejects oversized payload and broken tags without throwing', () => {
+    expect(parse(raw({ ...good, note: 'x'.repeat(16000) }))).toBeNull()
+    expect(parse({ ...raw(good), tags: [null] })).toBeNull()
+    expect(
+      parse(
+        raw(good, [
+          ['t', 'wot-pay'],
+          ['expiration', 'nope'],
+        ]),
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('signed claim release', () => {
+  it('roundtrips deletion request without public token', async () => {
+    const { cancelClaim } = await import('./events.js')
+    const e = sign(cancelClaim({ offerId: ID, claimId: 'b'.repeat(64) }))
+    expect(parse(e)).toMatchObject({ type: 'cancel', offerId: ID, claimId: 'b'.repeat(64) })
   })
 })
