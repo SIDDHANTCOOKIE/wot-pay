@@ -1,30 +1,71 @@
 import { useEffect, useState } from 'react'
-import { localSigner, extensionSigner, toHexPubkey, npubShort, prefs } from './identity.js'
+import { toHexPubkey, npubShort, prefs, restoreSigner } from './identity.js'
 import { useBoard } from './useBoard.js'
 import { useTokens } from './useTokens.js'
 import PayScreen from './PayScreen.jsx'
 import BoardScreen from './BoardScreen.jsx'
 import ProfileScreen from './ProfileScreen.jsx'
+import SigningSettings from './SigningSettings.jsx'
+import TrustManager from './TrustManager.jsx'
 
 export default function App() {
-  const [signer, setSigner] = useState(localSigner)
-  const [tab, setTab] = useState(() => (location.hash === '#board' ? 'board' : 'pay'))
+  const [signer, setSigner] = useState(null)
+  const [signerError, setSignerError] = useState('')
+  useEffect(() => {
+    let live = true,
+      current
+    restoreSigner()
+      .then((s) => {
+        current = s
+        if (live) setSigner(s)
+        else s.close?.()
+      })
+      .catch(
+        () =>
+          live && setSignerError('Saved signer unavailable. Reconnect it or explicitly use the device key.'),
+      )
+    return () => {
+      live = false
+      current?.close?.()
+    }
+  }, [])
+  function chooseSigner(next) {
+    signer?.close?.()
+    setSigner(next)
+    setSignerError('')
+    setActiveId(null)
+  }
+  const [tab, setTab] = useState(() =>
+    location.hash === '#board' || location.hash.startsWith('#offer/') ? 'board' : 'pay',
+  )
   const [activeId, setActiveId] = useState(() => sessionStorage.getItem('wot-pay:active'))
   const [trustInput, setTrustInput] = useState(prefs.trustNpub())
   const [showSettings, setShowSettings] = useState(false)
-  const trustRoot = toHexPubkey(prefs.trustNpub()) || signer.pubkey
-  const live = useBoard(trustRoot, signer.pubkey)
+  const trustRoot = toHexPubkey(prefs.trustNpub()) || signer?.pubkey
+  const [trustRevision, setTrustRevision] = useState(0)
+  const live = useBoard(trustRoot, signer?.pubkey, trustRevision)
   const cash = useTokens(live.client, signer)
   const board = { ...live, cash }
 
   useEffect(() => {
-    location.hash = tab
+    if (!location.hash.startsWith('#offer/') || tab !== 'board') location.hash = tab
   }, [tab])
   useEffect(() => {
-    activeId ? sessionStorage.setItem('wot-pay:active', activeId) : sessionStorage.removeItem('wot-pay:active')
+    activeId
+      ? sessionStorage.setItem('wot-pay:active', activeId)
+      : sessionStorage.removeItem('wot-pay:active')
   }, [activeId])
 
-  const usingOwnGraph = trustRoot === signer.pubkey
+  const usingOwnGraph = trustRoot === signer?.pubkey
+
+  if (!signer)
+    return (
+      <main className="app">
+        <h1>Nostr sign-in</h1>
+        <p role="status">{signerError || 'Restoring your signer…'}</p>
+        {signerError && <SigningSettings signer={null} onSigner={chooseSigner} />}
+      </main>
+    )
 
   return (
     <div className="app">
@@ -33,7 +74,10 @@ export default function App() {
           wot<span>·</span>pay
         </div>
         <button className="who" onClick={() => setShowSettings(true)}>
-          <span className={`dot ${board.relaysUp === 0 ? 'down' : ''}`} title={`${board.relaysUp ?? '…'}/${board.total} relays`} />
+          <span
+            className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
+            title={`${board.relaysUp ?? '…'}/${board.total} relays`}
+          />
           {npubShort(signer.pubkey)}
         </button>
       </header>
@@ -74,8 +118,8 @@ export default function App() {
         <ProfileScreen board={board} signer={signer} onClose={() => setShowSettings(false)}>
           <h2>Your web of trust</h2>
           <p className="dim">
-            Paste the npub you use on Damus or Primal. We read who it follows to rank the board. Nothing is posted
-            from it.
+            Paste the npub you use on Damus or Primal. We read who it follows to rank the board. Nothing is
+            posted from it.
           </p>
           <input
             value={trustInput}
@@ -94,17 +138,8 @@ export default function App() {
           >
             Save
           </button>
-          <h2>Signing key</h2>
-          <p className="dim">
-            {signer.kind === 'local'
-              ? 'A key made on this device signs your offers and stamps.'
-              : 'Your browser extension signs everything.'}
-          </p>
-          {signer.kind === 'local' && window.nostr && (
-            <button className="btn ghost" onClick={async () => setSigner((await extensionSigner()) || signer)}>
-              Use my Nostr extension
-            </button>
-          )}
+          <SigningSettings signer={signer} onSigner={chooseSigner} />
+          <TrustManager board={board} signer={signer} onChanged={() => setTrustRevision((r) => r + 1)} />
         </ProfileScreen>
       )}
     </div>
