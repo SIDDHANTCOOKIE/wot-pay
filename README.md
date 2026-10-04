@@ -10,7 +10,7 @@ Freedom Stack (Nostr + Ecash) · BOSS Battle, Bitshala · built by siddhant
 
 </div>
 
-![App screens using sample data](docs/1-screens.png)
+![App screens using sample data](docs/3-screens.png)
 
 *Local UI preview with sample offers, not live relay data or proof of payment.*
 
