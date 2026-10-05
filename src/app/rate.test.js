@@ -74,3 +74,14 @@ describe('suggested sats', () => {
     expect(inrToSats(80, null)).toBe(0)
   })
 })
+
+describe('invalid price values',()=>{
+ it.each(['Infinity',Infinity,NaN,'8000000',0,-1])('does not cache %s',async value=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce({json:async()=>({bitcoin:{inr:value}})}).mockResolvedValueOnce({json:async()=>({bitcoin:{inr:8000000}})}))
+  const api=await rate();expect(await api.inrPerBtc()).toBeNull();expect(await api.inrPerBtc()).toBe(8000000)
+ })
+ it('does not suggest infinite, negative, fractional or unsafe sats',async()=>{
+  const {inrToSats}=await rate()
+  for(const args of [[100,Infinity],[100,'Infinity'],[-1,8000000],[Infinity,8000000],[1,1e-100],[1e-100,8000000]])expect(inrToSats(...args)).toBe(0)
+ })
+})
