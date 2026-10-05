@@ -52,3 +52,9 @@ describe('token fence', () => {
     expect(pool.publish).toHaveBeenCalledTimes(1)
   })
 })
+
+it('fails closed when structure is too deep to inspect',()=>{
+ let proof={secret:'x',C:'02'}
+ for(let i=0;i<25;i++)proof={wrapped:proof}
+ expect(findToken({content:JSON.stringify(proof),tags:[]})).toBeTruthy()
+})

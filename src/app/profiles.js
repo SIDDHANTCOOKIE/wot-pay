@@ -13,6 +13,7 @@ export function readProfiles(events, authors, now = Math.floor(Date.now() / 1000
   const latest = new Map()
   for (const event of events) {
     try {
+      if (typeof event.content !== 'string' || event.content.length > 16000 || !Array.isArray(event.tags) || event.tags.length > 2000 || !event.tags.every(t => Array.isArray(t) && t.length <= 8 && t.every(v => typeof v === 'string' && v.length <= 2048))) continue
       if (event.kind !== 0 || !allowed.has(event.pubkey) || event.created_at > now + 60 || !verifyEvent({ id: event.id, sig: event.sig, pubkey: event.pubkey, kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content })) continue
       const old = latest.get(event.pubkey)
       if (!old || event.created_at > old.created_at || (event.created_at === old.created_at && event.id < old.id)) latest.set(event.pubkey, event)
