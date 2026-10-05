@@ -9,7 +9,7 @@ function isProof(v) {
 }
 
 function scan(value, path, depth = 0) {
-  if (depth > 20) return null
+  if (depth > 20) return `${path} (too deeply nested to inspect)`
   if (typeof value === 'string') {
     if (TOKEN_STRING.test(value)) return path
     const t = value.trim()
