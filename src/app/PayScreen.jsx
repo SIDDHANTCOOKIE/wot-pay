@@ -7,7 +7,7 @@ import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
 import { prefs } from './identity.js'
 import Orbit, { where } from './Orbit.jsx'
-import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
+import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
 export default function PayScreen({ board, signer, activeId, setActiveId }) {
@@ -219,6 +219,7 @@ function Live({ board, signer, offer, onDone }) {
           <Name pubkey={c.pubkey} profiles={board.profiles} /><Copy text={c.pubkey} label="Copy claimant public key" /><TrustBadge trust={board.ranker.explain(c.pubkey)} pubkey={c.pubkey} />
           <p className="dim">{c.receive?.method === 'lightning' ? c.receive.address : c.receive?.method === 'cashu' ? 'Ecash receive request' : 'No receiving method given'}</p>
           <p className="dim">{c.sats ? `Bids ${sats(c.sats)} (ask ${sats(offer.sats)})` : `Takes your ask of ${sats(offer.sats)}`}</p>
+          <ExposureWarning trust={board.ranker.explain(c.pubkey)} loading={board.trustLoading} />
           <button className="btn primary" disabled={busy} onClick={() => { if(window.confirm('Accept this exact claimant? Only accept after reviewing their identity and receiving details.')) accept(c) }}>Accept claim</button>
         </div>)}{error && <p className="hint warn">{error}</p>}
       </div>}
