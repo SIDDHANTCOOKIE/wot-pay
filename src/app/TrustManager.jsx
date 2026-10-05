@@ -12,8 +12,9 @@ export default function TrustManager({ board, signer, onChanged }) {
     setLoaded(false)
     setError('')
     try {
-      if (board.client.connected() === 0) throw Error('No relay connected')
-      setList(latestFollow(await board.client.query({ kinds: [3], authors: [signer.pubkey] }), signer.pubkey))
+      const events = await board.client.queryIdentity({ kinds: [3], authors: [signer.pubkey] }, { discover: true, refresh: true })
+      if (!events.length && board.client.connected() === 0) throw Error('No relay connected')
+      setList(latestFollow(events, signer.pubkey))
       setLoaded(true)
     } catch {
       setError('Could not verify your current follows. Reconnect and refresh before editing.')
@@ -28,7 +29,7 @@ export default function TrustManager({ board, signer, onChanged }) {
     try {
       if (board.client.connected() === 0) throw Error('No relay connected')
       const current = latestFollow(
-        await board.client.query({ kinds: [3], authors: [signer.pubkey] }),
+        await board.client.queryIdentity({ kinds: [3], authors: [signer.pubkey] }, { discover: true, refresh: true }),
         signer.pubkey,
       )
       if ((current?.id || null) !== (list?.id || null)) {
