@@ -8,12 +8,12 @@ import Orbit, { where, SettleMark } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
-export default function BoardScreen({ board, signer }) {
+export default function BoardScreen({ board, signer, onRequireIdentity }) {
   const [openId, setOpenId] = useState(() => {
     const match = location.hash.match(/^#offer\/([0-9a-f]{64})$/)
     return match?.[1] || null
   })
-  const me = signer.pubkey
+  const me = signer?.pubkey
 
   const offers = useMemo(() => board.events.filter((e) => e.type === 'offer'), [board.events])
   const withState = useMemo(
@@ -21,7 +21,7 @@ export default function BoardScreen({ board, signer }) {
     [offers, board.events],
   )
 
-  const mine = withState.filter(({ s }) => s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
+  const mine = withState.filter(({ s }) => !!me && s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
   const open = board.ranker.rank(
     withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o),
   )
@@ -49,6 +49,7 @@ export default function BoardScreen({ board, signer }) {
         board={board}
         signer={signer}
         offer={current}
+        onRequireIdentity={onRequireIdentity}
         onBack={() => {
           setOpenId(null)
           location.hash = 'board'
@@ -59,7 +60,7 @@ export default function BoardScreen({ board, signer }) {
   return (
     <section className="screen">
       <h1>Pay for someone</h1>
-      <p className="lede">Pay a QR in rupees, get sats back. Closest people first.</p>
+      <p className="lede">{signer ? 'Pay a QR in rupees, get sats back. Closest people first.' : 'Explore public offers. Choose an identity before claiming or paying.'}</p>
 
       {mine.length > 0 && (
         <>
@@ -118,11 +119,11 @@ function OfferRow({ o, board, me, onOpen, active }) {
   )
 }
 
-function Detail({ board, signer, offer, onBack }) {
-  const me = signer.pubkey
+function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
+  const me = signer?.pubkey
   const state = tradeState(offer, board.events)
   const mineClaim = state.claims.find((c) => c.pubkey === me)
-  const leading = state.claim?.pubkey === me
+  const leading = !!me && state.claim?.pubkey === me
   const myStamp = state.takerStamp && leading ? state.takerStamp : null
   const [ln, setLn] = useState(prefs.lnAddress())
   const [how, setHow] = useState(() => (board.cash.supported ? prefs.receive() : 'lightning'))
@@ -132,6 +133,7 @@ function Detail({ board, signer, offer, onBack }) {
   const trust = board.ranker.explain(offer.pubkey)
 
   async function send(buildTemplate) {
+    if (!signer) { onRequireIdentity?.(); return false }
     setBusy(true)
     setError('')
     try {
@@ -151,6 +153,7 @@ function Detail({ board, signer, offer, onBack }) {
     state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
 
   const doClaim = async () => {
+    if (!signer) { onRequireIdentity?.(); return }
     if (busy || claimPending || state.status !== 'open' || mineClaim) return
     setClaimPending(true)
     prefs.setReceive(how)
@@ -164,6 +167,7 @@ function Detail({ board, signer, offer, onBack }) {
     setClaimPending(false)
   }
   const stamp = (kind) => {
+    if (!signer) { onRequireIdentity?.(); return }
     const args = { offerId: offer.id, claimId: mineClaim.id, counterparty: offer.pubkey }
     send(() => (kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' })))
   }
@@ -200,7 +204,8 @@ function Detail({ board, signer, offer, onBack }) {
         </p>
       </div>
 
-      {!mineClaim && (
+      {!signer && <div className="card"><p>Guest demo mode is read-only. Choose a signer before claiming or paying.</p><button className="btn primary" onClick={onRequireIdentity}>Choose identity to claim</button></div>}
+      {signer && !mineClaim && (
         <div className="card">
           <div className="field">
             <span>How do you want the sats?</span>
