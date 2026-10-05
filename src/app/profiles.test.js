@@ -24,3 +24,8 @@ describe('profile metadata', () => {
     for (const url of ['javascript:alert(1)', 'http://example.com/a', 'data:image/png;base64,xyz', 'https://u:p@example.com/a', 'bad']) expect(profilePicture(url)).toBe('')
   })
 })
+
+it('rejects oversized profile content before parsing',()=>{
+ const oversized=event({name:'x'.repeat(16001)})
+ expect(readProfiles([oversized],[pubkey],10)).toEqual({})
+})
