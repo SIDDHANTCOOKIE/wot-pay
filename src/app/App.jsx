@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { toHexPubkey, npubShort, prefs, restoreSigner, signOut } from './identity.js'
+import { toHexPubkey, prefs, restoreSigner, signOut } from './identity.js'
 import { useBoard } from './useBoard.js'
 import { useTokens } from './useTokens.js'
 import PayScreen from './PayScreen.jsx'
@@ -9,6 +9,7 @@ import SigningSettings from './SigningSettings.jsx'
 import TrustManager from './TrustManager.jsx'
 import IdentityChoice from './IdentityChoice.jsx'
 import InstallHint from './InstallHint.jsx'
+import { Name } from './ui.jsx'
 
 export default function App() {
   const [signer, setSigner] = useState(null)
@@ -97,7 +98,7 @@ export default function App() {
             className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
             title={`${board.relaysUp ?? '…'}/${board.total} relays`}
           />
-          {signer ? npubShort(signer.pubkey) : 'Guest · choose identity'}
+          {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Guest · choose identity'}
         </button>
       </header>
 

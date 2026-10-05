@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRelayClient } from '../relays.js'
 import { parse } from '../events.js'
 import { createRanker, loadTrustData } from '../wot.js'
+import { readProfiles } from './profiles.js'
 
 const DAY = 24 * 3600
 
@@ -11,7 +12,7 @@ export function useBoard(trustRoot, me, revision = 0) {
   const client = useMemo(() => createRelayClient(), [])
   const [events, setEvents] = useState(() => new Map())
   const [trust, setTrust] = useState({ followLists: [], stamps: [], loading: true })
-  const [names, setNames] = useState({})
+  const [profiles, setProfiles] = useState({})
   const asked = useRef(new Set())
 
   useEffect(() => {
@@ -45,25 +46,20 @@ export function useBoard(trustRoot, me, revision = 0) {
     }
   }, [client, trustRoot, revision])
 
-  // Fetch kind-0 names for authors we haven't looked up yet.
+  // Fetch kind-0 profile metadata for authors we haven't looked up yet.
   useEffect(() => {
-    const want = [...new Set([...events.values()].map((e) => e.pubkey))].filter(
+    const want = [...new Set([me, ...[...events.values()].map((e) => e.pubkey)].filter(Boolean))].filter(
       (pk) => !asked.current.has(pk),
     )
     if (!want.length) return
     want.forEach((pk) => asked.current.add(pk))
     client.query({ kinds: [0], authors: want }).then((list) => {
-      const out = {}
-      for (const ev of list) {
-        try {
-          const m = JSON.parse(ev.content)
-          const name = m.display_name || m.name
-          if (typeof name === 'string' && name.length <= 256) out[ev.pubkey] = name
-        } catch {}
-      }
-      setNames((n) => ({ ...n, ...out }))
-    })
-  }, [client, events])
+      const out = readProfiles(list, want)
+      setProfiles((p) => ({ ...p, ...out }))
+    }).catch(() => {})
+  }, [client, events, me])
+
+  const names = useMemo(() => Object.fromEntries(Object.entries(profiles).map(([pk, p]) => [pk, p.name])), [profiles])
 
   const all = useMemo(() => [...events.values()], [events])
   const ranker = useMemo(
@@ -112,6 +108,7 @@ export function useBoard(trustRoot, me, revision = 0) {
     events: all,
     ranker,
     names,
+    profiles,
     publish,
     relaysUp,
     total: client.relays.length,

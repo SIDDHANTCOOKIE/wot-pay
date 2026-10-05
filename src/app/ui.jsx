@@ -2,9 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import Orbit, { tone, where } from './Orbit.jsx'
 import { npubShort } from './identity.js'
 
-export function Name({ pubkey, names, you }) {
-  if (pubkey === you) return <span className="name">you</span>
-  return <span className="name">{names?.[pubkey] || npubShort(pubkey)}</span>
+export function Name({ pubkey, names, profiles, you, showNpub = false }) {
+  const profile = profiles?.[pubkey]
+  const [broken, setBroken] = useState('')
+  const short = npubShort(pubkey)
+  const name = profile?.name || names?.[pubkey] || short
+  const picture = profile?.picture
+  return <span className="identity-label" title={short}>
+    {picture && broken !== picture ? <img className="identity-avatar" src={picture} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(picture)} /> :
+      <span className="identity-avatar placeholder" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>}
+    <span className="identity-copy"><span className="name">{name}{pubkey === you && name !== short ? ' (you)' : ''}</span>{showNpub && name !== short && <span className="identity-npub">{short}</span>}</span>
+  </span>
 }
 
 // Trust at a glance: a small orbit plus where they sit and their record.
