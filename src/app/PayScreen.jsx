@@ -208,7 +208,7 @@ function Live({ board, signer, offer, onDone }) {
           <div className="trust-card flat">
             <Orbit trust={board.ranker.explain(claim.pubkey)} pubkey={claim.pubkey} size={72} />
             <div className="trust-copy">
-              <Name pubkey={claim.pubkey} names={board.names} you={signer.pubkey} />
+              <Name pubkey={claim.pubkey} names={board.names} profiles={board.profiles} you={signer.pubkey} />
               <div className="where">{where(board.ranker.explain(claim.pubkey))}</div>
             </div>
           </div>
