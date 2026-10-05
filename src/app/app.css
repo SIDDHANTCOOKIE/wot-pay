@@ -354,3 +354,16 @@ main { padding-bottom: 120px; }
   color: var(--accent);
   font: 400 32px/1 var(--display);
 }
+
+.identity-label { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; min-width: 0; max-width: 100%; }
+.identity-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: 0 0 26px; background: var(--card-2); }
+.identity-avatar.placeholder { display: inline-grid; place-items: center; color: var(--dim); border: 1px solid var(--line-2); font-size: 11px; }
+.identity-copy { display: flex; flex-direction: column; min-width: 0; text-align: left; }
+.identity-copy .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.identity-npub { font: 10px var(--mono); color: var(--dim); }
+.who .identity-copy .name { max-width: 120px; font-size: 12px; }
+
+.profile-identity { flex-wrap: nowrap; }
+.profile-identity .identity-label { flex: 1; overflow: hidden; }
+.profile-identity .btn { flex-shrink: 0; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); }
