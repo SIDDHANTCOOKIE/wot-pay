@@ -150,6 +150,10 @@ export function disputed(args) {
   return stamp(KIND.DISPUTED, args)
 }
 
+export function acceptClaim({ offerId, claimId, counterparty }) {
+  return stamp(KIND.ACCEPT, { offerId, claimId: checkId(claimId, 'claimId'), counterparty })
+}
+
 export function cancelClaim({ offerId, claimId }) {
   return template(
     KIND.CANCEL,
@@ -167,7 +171,7 @@ export function parse(ev) {
   try {
     if (!ev || !Object.values(KIND).includes(ev.kind)) return null
     if (!HEX64.test(ev.id || '') || !HEX64.test(ev.pubkey || '')) return null
-    if (!Number.isSafeInteger(ev.created_at) || ev.created_at < 0) return null
+    if (!Number.isSafeInteger(ev.created_at) || ev.created_at < 0 || ev.created_at > Math.floor(Date.now()/1000) + 60) return null
     if (typeof ev.content !== 'string' || ev.content.length > 16000) return null
     if (
       !Array.isArray(ev.tags) ||
@@ -227,11 +231,12 @@ export function parse(ev) {
       }
     const claimTag = tag('e', 'reply'),
       claimId = claimTag === undefined ? undefined : checkId(claimTag, 'claimId')
+    if (ev.kind === KIND.ACCEPT && !claimId) return null
     const reason = text(body.reason, 'reason')
     if (ev.kind === KIND.DISPUTED && !reason) return null
     return {
       ...base,
-      type: ev.kind === KIND.SETTLED ? 'settled' : 'disputed',
+      type: ev.kind === KIND.ACCEPT ? 'accept' : ev.kind === KIND.SETTLED ? 'settled' : 'disputed',
       offerId,
       claimId,
       counterparty: p,

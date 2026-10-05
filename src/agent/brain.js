@@ -49,8 +49,6 @@ export function createBrain({
 
     state.tried.add(pick.id)
     state.active = { offer: pick, phase: 'claimed', told: null }
-    const t = pick.trust
-    const record = t.settles ? `${t.settles} settled, no disputes` : 'no trades yet'
     return [
       {
         type: 'claim',
@@ -62,10 +60,9 @@ export function createBrain({
       },
       {
         type: 'dm',
-        text:
-          `New trade: pay ${inr(pick.inr)} to ${pick.payee || pick.vpa} (${pick.vpa}). ` +
-          `You get ${sat(pick.sats)} at ${lnAddress}. ${name(pick.pubkey)} is someone you follow, ${record}.\n\n` +
-          `${upiLink(pick)}\n\nReply "paid" when done, or "skip".`,
+        text: `Claim requested for ${inr(pick.inr)}. Waiting for the maker to accept. Do not pay yet. Reply "skip" to cancel after the claim is published.`,
+        offerId: pick.id,
+        requiresAcceptance: false,
       },
     ]
   }
@@ -78,7 +75,7 @@ export function createBrain({
     a.claimId = mine.id
     a.claim = mine
 
-    if (st.claim && st.claim.pubkey !== me) {
+    if (st.acceptance && st.claim && st.claim.pubkey !== me) {
       if (a.phase === 'paid' || a.phase === 'lost-paid') {
         if (a.phase === 'lost-paid') return []
         a.phase = 'lost-paid'
@@ -89,6 +86,13 @@ export function createBrain({
           text: `Someone else got the ${inr(a.offer.inr)} trade first.${a.phase === 'lost-paid' ? ' You already paid: tell me "no" if the sats never come.' : ' Don’t pay it.'}`,
         },
       ]
+    }
+    if (st.status === 'claimed' && st.accepted && st.claim?.pubkey === me && !a.payRequested && a.phase === 'claimed') {
+      a.payRequested = true
+      return [{ type: 'dm', offerId: a.offer.id, claimId: mine.id, requiresAcceptance: true,
+        text: `Maker accepted your claim. Pay ${inr(a.offer.inr)} to ${a.offer.payee || a.offer.vpa} (${a.offer.vpa}). You get ${sat(a.offer.sats)} at ${lnAddress}.
+${upiLink(a.offer)}
+Reply "paid" when done, or "skip".` }]
     }
     if (st.makerStamp && a.told !== st.makerStamp.id) {
       a.told = st.makerStamp.id
@@ -107,9 +111,8 @@ export function createBrain({
   }
 
   function onOwnerMessage(raw) {
-    const cmd = (String(raw)
-      .toLowerCase()
-      .match(/[a-z]+/) || [''])[0]
+    const cmd = String(raw).trim().toLowerCase().replace(/[.!]$/, '')
+    if (!['pause','resume','status','paid','skip','got','no'].includes(cmd)) return [{ type: 'dm', text: 'Use one exact command: paid, skip, got, no, status, pause or resume. No trade state changed.' }]
     const a = state.active
     const reply = (text) => [{ type: 'dm', text }]
 
@@ -132,7 +135,7 @@ export function createBrain({
     }
     if (!a) return reply('Nothing open. Commands: status, pause, resume.')
 
-    if (cmd === 'paid' && ['claimed', 'unpaid-confirm'].includes(a.phase)) {
+    if (cmd === 'paid' && ['claimed', 'unpaid-confirm'].includes(a.phase) && a.payRequested) {
       a.phase = 'paid'
       return reply('Noted. I’ll tell you when the sats are on their way.')
     }
@@ -172,7 +175,7 @@ export function createBrain({
         },
       ]
     }
-    return reply(a.phase === 'claimed' ? 'Reply "paid" or "skip".' : 'Reply "got" or "no".')
+    return reply(a.phase === 'claimed' ? (a.payRequested ? 'Reply "paid" or "skip".' : 'Waiting for maker acceptance. Do not pay. Reply "skip" to release the claim.') : 'Reply "got" or "no".')
   }
 
   // The claim never reached a relay: forget it so the owner isn't told to pay.
@@ -186,6 +189,7 @@ export function createBrain({
     claimFailed,
     state,
     snapshot: () => ({ paused: state.paused, active: state.active, tried: [...state.tried] }),
+    restore: (snapshot) => { state.paused = snapshot.paused; state.active = snapshot.active; state.tried = new Set(snapshot.tried) },
     completed: () => {
       state.active = null
     },

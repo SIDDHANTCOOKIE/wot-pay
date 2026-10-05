@@ -42,7 +42,7 @@ describe('double stamps', () => {
   })
 
   it('a stranger cannot stamp someone else’s trade', () => {
-    expect(tradeState(off(), [a, st('disputed', T2, 'aaa', 6)]).status).toBe('claimed')
+    expect(tradeState(off(), [a, st('disputed', T2, 'aaa', 6)]).status).toBe('open')
   })
 })
 
@@ -51,8 +51,8 @@ describe('expiry', () => {
   it('an unclaimed offer past its expiry is expired', () => {
     expect(tradeState(off({ expiresAt: past }), []).status).toBe('expired')
   })
-  it('a trade already claimed keeps going after expiry', () => {
-    const s = tradeState(off({ expiresAt: past }), [cl('aaa', T1, 5)])
+  it('a trade accepted before expiry keeps going after expiry', () => {
+    const s = tradeState(off({ expiresAt: past }), [cl('aaa', T1, 5), st('accept', M, 'aaa', 6)])
     expect(s.status).toBe('claimed')
   })
 })
@@ -120,7 +120,7 @@ function pool(outcomes) {
   return {
     publish: vi.fn(() => outcomes.map((o) => (o === 'ok' ? Promise.resolve('') : Promise.reject(new Error(o))))),
     subscribeMany: vi.fn(),
-    listConnectionStatus: () => new Map(outcomes.map((o, i) => [`wss://r${i}`, o === 'ok'])),
+    listConnectionStatus: () => new Map(outcomes.map((o, i) => [`wss://r${i}/`, o === 'ok'])),
     close: vi.fn(),
   }
 }

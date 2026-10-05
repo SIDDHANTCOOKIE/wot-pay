@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import TradeOutcome from './TradeOutcome.jsx'
+import { useEffect, useMemo, useState } from 'react'
 import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { tokenIssues } from '../dm.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
-import Orbit, { where, SettleMark } from './Orbit.jsx'
+import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
@@ -21,7 +22,7 @@ export default function BoardScreen({ board, signer, onRequireIdentity }) {
     [offers, board.events, board.ranker],
   )
 
-  const mine = withState.filter(({ s }) => !!me && s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
+  const mine = withState.filter(({ s }) => !!me && s.claims.some(c => c.pubkey === me) && s.status !== 'settled').map(({ o }) => o)
   const open = board.ranker.rank(
     withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o),
   )
@@ -120,6 +121,8 @@ function OfferRow({ o, board, me, onOpen, active }) {
 }
 
 function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
+  const [clock, setClock] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => { const timer = setInterval(() => setClock(Math.floor(Date.now() / 1000)), 1000); return () => clearInterval(timer) }, [])
   const me = signer?.pubkey
   const state = tradeState(offer, board.events, { trustedClaimers: board.ranker.hops })
   const mineClaim = state.claims.find((c) => c.pubkey === me)
@@ -148,13 +151,13 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
   }
 
   const received = board.cash.forOffer(offer.id, offer.pubkey)
-  const expired = state.status === 'expired'
+  const expired = state.status === 'expired' || (offer.expiresAt && offer.expiresAt <= clock)
   const canClaim =
-    state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
+    !expired && state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
 
   const doClaim = async () => {
     if (!signer) { onRequireIdentity?.(); return }
-    if (busy || claimPending || state.status !== 'open' || mineClaim) return
+    if (busy || claimPending || state.status !== 'open' || mineClaim || (offer.expiresAt && offer.expiresAt <= Math.floor(Date.now() / 1000))) return
     setClaimPending(true)
     prefs.setReceive(how)
     let receive = { method: 'cashu', mint: offer.mint }
@@ -167,12 +170,13 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
     setClaimPending(false)
   }
   const stamp = (kind) => {
+    if (!state.accepted || !leading) return
     if (!signer) { onRequireIdentity?.(); return }
     const args = { offerId: offer.id, claimId: mineClaim.id, counterparty: offer.pubkey }
     send(() => (kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' })))
   }
 
-  const step = !mineClaim ? 0 : myStamp ? 3 : state.makerStamp ? 2 : 1
+  const step = !mineClaim || !state.accepted ? 0 : myStamp ? 3 : state.makerStamp ? 2 : 1
 
   return (
     <section className="screen">
@@ -184,6 +188,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       <div className="card summary">
         <div className="big">{rupees(offer.inr)}</div>
         <div className="dim">to {offer.payee || offer.vpa}</div>
+        {offer.note && <p className="offer-note">{offer.note}</p>}
         <div className="earn">You get {sats(offer.sats)}</div>
         <MintChip mint={offer.mint} />
       </div>
@@ -243,31 +248,27 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
                 ? 'Already claimed'
                 : busy || claimPending
                   ? 'Claiming…'
-                  : 'Claim and pay'}
+                  : 'Request claim'}
           </button>
         </div>
       )}
 
-      {claimPending && (
+      {claimPending && !mineClaim && (
         <div className="card dim" role="status">
           Claim pending. Waiting for relay updates. Do not pay yet.
         </div>
       )}
-      {mineClaim && !leading && (
+      {mineClaim && state.accepted && !leading && (
         <div className="card hint warn" role="status">
           Claim lost. Someone else leads this trade. Do not pay.
         </div>
       )}
 
-      {mineClaim && leading && !myStamp && !claimPending && (
+      {mineClaim && !state.accepted && !myStamp && <div className="card hint warn" role="status">Waiting for maker acceptance. Do not pay yet.</div>}
+      {mineClaim && leading && state.accepted && !myStamp && !claimPending && (
         <div className="card">
-          <p>
-            <span className="hint warn">
-              You lead in the events currently received. Relay delay can still reveal another claim. Verify
-              the maker agrees before paying.
-            </span>
-            Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span>
-          </p>
+          <p>The maker signed acceptance for your exact claim. Check the payee and amount before paying.</p>
+          <p>Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span></p>
           <div className="actions">
             <Copy text={offer.vpa} label="Copy UPI ID" />
             <a className="btn primary" href={upiLink(offer)}>
@@ -317,20 +318,12 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       )}
 
       {myStamp && (
-        <div className={`card done ${myStamp.type}`}>
-          <SettleMark ok={myStamp.type === 'settled'} />
-          <div className="hero-word">
-            {myStamp.type === 'settled'
-              ? state.status === 'settled'
-                ? 'Settled.'
-                : 'You stamped settled.'
-              : 'Disputed.'}
-          </div>
+        <TradeOutcome state={state} ownStamp={myStamp}>
           <div className="dim">Your stamp is public and counts in your web’s trust scores.</div>
           <button className="btn primary" onClick={onBack}>
             Back to board
           </button>
-        </div>
+        </TradeOutcome>
       )}
     </section>
   )

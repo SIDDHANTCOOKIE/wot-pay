@@ -30,3 +30,8 @@ describe('follow-list merge', () => {
   it('selects newest owner list', () =>
     expect(latestFollow([old, { ...old, id: 'b', created_at: 2 }], A).id).toBe('b'))
 })
+it('uses lowest ID at equal time and rejects far-future lists',()=>{
+ const a={...old,id:'a'},b={...old,id:'b',tags:[]}
+ expect(latestFollow([a,b],A).id).toBe('a');expect(latestFollow([b,a],A).id).toBe('a')
+ expect(latestFollow([{...old,created_at:Math.floor(Date.now()/1000)+61}],A)).toBeNull()
+})

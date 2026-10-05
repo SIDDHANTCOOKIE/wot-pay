@@ -11,6 +11,7 @@ import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { wrapEvent, unwrapEvent } from 'nostr-tools/nip17'
 import * as nip19 from 'nostr-tools/nip19'
 import { createRelayClient } from '../relays.js'
+import { mayDeliverMessage } from './payment-guard.js'
 import { parse } from '../events.js'
 import { createRanker, loadTrustData } from '../wot.js'
 import { createOutbox } from './outbox.js'
@@ -73,8 +74,13 @@ const outbox = createOutbox({
   saved: saved?.queue || [],
   persist,
   completed: () => brain.completed(),
+  snapshot: () => structuredClone(brain.snapshot()),
+  restore: (before) => brain.restore(before),
   deliver: async (item) => {
-    if (item.wraps) await client.sendWrapped(item.wraps)
+    if (item.wraps) {
+      if (!(await mayDeliverMessage(item, { events, query: filter => client.query(filter), me }))) return
+      await client.sendWrapped(item.wraps)
+    }
     else {
       await client.publish(item.signed)
       const p = parse(item.signed)
@@ -89,7 +95,7 @@ const outbox = createOutbox({
 function run(actions) {
   const items = actions.map((a) =>
     a.type === 'dm'
-      ? { wraps: [wrapEvent(sk, { publicKey: owner }, a.text)] }
+      ? { wraps: [wrapEvent(sk, { publicKey: owner }, a.text)], messageScope: 'current', offerId: a.offerId, claimId: a.claimId, requiresAcceptance: !!a.requiresAcceptance }
       : { signed: finalizeEvent(a.template, sk), completeTrade: !!a.completeTrade },
   )
   return outbox.add(items)

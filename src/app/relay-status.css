@@ -1,0 +1,7 @@
+.relay-sheet { max-height: 85dvh; overflow-y: auto; }
+.relay-list { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.relay-item { padding: 14px; border-bottom: 1px solid var(--line); }
+.relay-item:last-child { border-bottom: 0; }
+.relay-item .fine { margin: 6px 0 0; }
+.relay-url { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.relay-up { color: #89bd9f; font-size: 12px; flex-shrink: 0; }

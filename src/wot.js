@@ -1,4 +1,5 @@
 import { KIND } from './kinds.js'
+import { latestFollow } from './follows.js'
 import { parse } from './events.js'
 
 // Web-of-trust ranking.
@@ -15,12 +16,7 @@ export const MAX_HOPS = HOP_WEIGHT.length - 1
 
 // followLists: kind-3 events. Keeps only the newest list per author.
 export function buildGraph(followLists) {
-  const latest = new Map()
-  for (const ev of followLists) {
-    if (ev.kind !== 3) continue
-    const prev = latest.get(ev.pubkey)
-    if (!prev || ev.created_at > prev.created_at) latest.set(ev.pubkey, ev)
-  }
+  const latest = new Map([...new Set(followLists.filter(e => e?.kind === 3).map(e => e.pubkey))].map(pk => [pk, latestFollow(followLists, pk)]).filter(([,e]) => e))
   const graph = new Map()
   for (const [pk, ev] of latest) {
     graph.set(pk, new Set(ev.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1])))
@@ -79,6 +75,7 @@ export function tallyStamps(stamps, dist, events = []) {
       (s.pubkey === claim.pubkey && s.counterparty === offer.pubkey)
     ))
       continue
+    if (events.some(e => e.type === 'cancel' && e.claimId === claim.id && e.offerId === offer.id && e.pubkey === claim.pubkey && e.created_at >= claim.created_at)) continue
     if (s.created_at < claim.created_at || claim.created_at < offer.created_at) continue
     if (s.pubkey === s.counterparty) continue
     if (!dist.has(s.pubkey)) continue // author outside the graph: ignored
@@ -173,6 +170,10 @@ export async function loadTrustData(query, viewer, { depth = 2, maxAuthors = 100
     try {
       trades.push(...(await query({ ids: ids.slice(i, i + CHUNK), kinds: [KIND.OFFER, KIND.CLAIM] })))
     } catch {}
+  }
+  const claimIds = [...new Set(trades.filter(e => e.kind === KIND.CLAIM).map(e => e.id))]
+  for (let i=0;i<claimIds.length;i+=CHUNK) {
+    try { trades.push(...await query({kinds:[KIND.CANCEL], '#e':claimIds.slice(i,i+CHUNK)})) } catch {}
   }
   return { followLists, stamps, trades }
 }

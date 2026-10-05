@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
-import { offer, claim, settled, parse } from '../events.js'
+import { offer, claim, acceptClaim, settled, parse } from '../events.js'
 import { createRanker } from '../wot.js'
 import { createBrain, rejectReason, DEFAULT_POLICY } from './brain.js'
 
@@ -79,7 +79,8 @@ describe('agent flow', () => {
       method: 'lightning',
       address: 'owner@wallet.com',
     })
-    expect(acts[1].text).toContain('upi://pay?pa=shop%40okaxis')
+    expect(acts[1].text).not.toContain('upi://')
+    expect(acts[1].text).toContain('Do not pay yet')
     expect(brain.onBoard({ events: [o], ranker: ranker(), now })).toEqual([])
   })
 
@@ -88,6 +89,7 @@ describe('agent flow', () => {
     const o = mkOffer(friend)
     const [c] = brain.onBoard({ events: [o], ranker: ranker(), now })
     const myClaim = ev(c.template, agent)
+    brain.onBoard({events:[o,myClaim,ev(acceptClaim({offerId:o.id,claimId:myClaim.id,counterparty:agent.pk}),friend)],ranker:ranker(),now})
     expect(brain.onOwnerMessage('Paid!')[0].text).toMatch(/Noted/)
     const s = ev(settled({ offerId: o.id, claimId: myClaim.id, counterparty: agent.pk }), friend)
     const [dm] = brain.onBoard({ events: [o, myClaim, s], ranker: ranker(), now })
@@ -109,7 +111,7 @@ describe('agent flow', () => {
     const theirs = parse(
       finalizeEvent({ ...claim({ offerId: o.id, maker: friend.pk }), created_at: now - 5 }, rival.sk),
     )
-    const [dm] = brain.onBoard({ events: [o, theirs, ev(c.template, agent)], ranker: ranker(), now })
+    const [dm] = brain.onBoard({ events: [o, theirs, ev(c.template, agent), ev(acceptClaim({offerId:o.id,claimId:theirs.id,counterparty:rival.pk}),friend)], ranker: ranker(), now })
     expect(dm.text).toMatch(/Don’t pay/)
     expect(brain.state.active).toBeNull()
   })
@@ -138,6 +140,7 @@ describe('agent edge cases', () => {
     const o = mkOffer(friend)
     const [c] = brain.onBoard({ events: [o], ranker: ranker(), now })
     const mine = ev(c.template, agent)
+    brain.onBoard({events:[o,mine,ev(acceptClaim({offerId:o.id,claimId:mine.id,counterparty:agent.pk}),friend)],ranker:ranker(),now})
     brain.onOwnerMessage('paid')
     const d = ev(
       {
@@ -190,6 +193,7 @@ describe('paid trade recovery', () => {
     const [c] = brain.onBoard({ events: [o], ranker: ranker(), now }),
       mine = ev(c.template, agent)
     brain.onBoard({ events: [o, mine], ranker: ranker(), now })
+    brain.onBoard({events:[o,mine,ev(acceptClaim({offerId:o.id,claimId:mine.id,counterparty:agent.pk}),friend)],ranker:ranker(),now})
     brain.onOwnerMessage('paid')
     const restored = createBrain({
       me: agent.pk,
@@ -200,7 +204,7 @@ describe('paid trade recovery', () => {
     const theirs = parse(
       finalizeEvent({ ...claim({ offerId: o.id, maker: friend.pk }), created_at: now - 5 }, rival.sk),
     )
-    restored.onBoard({ events: [o, mine, theirs], ranker: ranker(), now })
+    restored.onBoard({ events: [o, mine, theirs, ev(acceptClaim({offerId:o.id,claimId:theirs.id,counterparty:rival.pk}),friend)], ranker: ranker(), now })
     expect(restored.state.active.phase).toBe('lost-paid')
     expect(restored.onOwnerMessage('no')[0].type).toBe('stamp')
     expect(restored.state.active.phase).toBe('stamping')
@@ -228,4 +232,14 @@ describe('outsider claim protection', () => {
     const c = ev(claim({ offerId: o.id, maker: friend.pk }), outsider)
     expect(rejectReason(o, { ranker: ranker(), events: [o, c], me: agent.pk, owner: owner.pk, policy: DEFAULT_POLICY, now })).toBeNull()
   })
+})
+describe('exact owner command grammar',()=>{
+ it.each(['got no sats','no problem got sats','paid nothing yet'])('does not apply ambiguous command %s',cmd=>{
+  const brain=setup(),o=mkOffer(friend)
+  const [action]=brain.onBoard({events:[o],ranker:ranker(),now})
+  const c=ev(action.template,agent)
+  brain.onBoard({events:[o,c],ranker:ranker(),now})
+  const before=brain.snapshot(),out=brain.onOwnerMessage(cmd)
+  expect(brain.snapshot()).toEqual(before);expect(out).toHaveLength(1);expect(out[0].type).toBe('dm');expect(out[0].text).toContain('No trade state changed')
+ })
 })

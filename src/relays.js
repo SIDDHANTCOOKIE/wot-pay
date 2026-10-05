@@ -1,10 +1,31 @@
+import { normalizeURL } from 'nostr-tools/utils'
 import { SimplePool } from 'nostr-tools/pool'
 import { DEFAULT_RELAYS, KIND, APP_TAG } from './kinds.js'
 import { assertNoToken } from './fence.js'
 import { GIFT_WRAP } from './dm.js'
+import { IDENTITY_RELAYS, writeRelays } from './identity-relays.js'
 
 // Ping keeps the connection count honest when a network drops silently.
 export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool({ enablePing: true, enableReconnect: true }) } = {}) {
+  const reading = new Set(relays.map(normalizeURL))
+  const discovered = new Map()
+  const identityQuery = (urls, filter, maxWait) => {
+    urls.forEach(url => reading.add(normalizeURL(url)))
+    return pool.querySync(urls, filter, { maxWait })
+  }
+  async function queryIdentity(filter, { discover = false, refresh = false, maxWait = 4000 } = {}) {
+    const base = [...new Set([...relays, ...IDENTITY_RELAYS])]
+    let extra = []
+    const owner = filter.authors?.length === 1 ? filter.authors[0] : null
+    if (discover && owner) {
+      if (refresh) discovered.delete(owner)
+      if (!discovered.has(owner)) discovered.set(owner,
+        identityQuery(base, { kinds: [10002], authors: [owner] }, maxWait)
+          .then(events => writeRelays(events, owner)).catch(() => []))
+      extra = await discovered.get(owner)
+    }
+    return identityQuery([...new Set([...base, ...extra])], filter, maxWait)
+  }
   // Every outgoing event passes the token fence, even ones not built by events.js.
   async function publish(signed) {
     assertNoToken(signed)
@@ -47,9 +68,10 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
   }
 
   // How many relays have a live connection right now.
-  const connected = () => [...(pool.listConnectionStatus?.() || new Map()).values()].filter(Boolean).length
+  const connected = () => relays.filter(url => pool.listConnectionStatus?.().get(normalizeURL(url))).length
 
-  const close = () => pool.close(relays)
+  const relayStatus = () => [...reading].map(url => ({ url, connected: !!pool.listConnectionStatus?.().get(normalizeURL(url)), write: relays.map(normalizeURL).includes(url), read: true }))
+  const close = () => pool.close([...reading])
 
-  return { publish, subscribe, query, sendWrapped, subscribeWrapped, connected, close, relays }
+  return { publish, subscribe, query, queryIdentity, relayStatus, sendWrapped, subscribeWrapped, connected, close, relays }
 }

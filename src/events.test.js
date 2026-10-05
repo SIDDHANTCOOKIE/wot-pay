@@ -102,3 +102,10 @@ describe('signed claim release', () => {
     expect(parse(e)).toMatchObject({ type: 'cancel', offerId: ID, claimId: 'b'.repeat(64) })
   })
 })
+
+it('rejects far-future events and accepts only bounded clock skew', () => {
+  const t=offer({vpa:'a@ok',inr:10,sats:100}),now=Math.floor(Date.now()/1000)
+  expect(parse(sign({...t,created_at:now+60}))).not.toBeNull()
+  expect(parse(sign({...t,created_at:now+61}))).toBeNull()
+  expect([sign(t),sign(t)].map(parse).filter(Boolean)).toHaveLength(2)
+})
