@@ -98,7 +98,7 @@ The screenshots show signed sample offers and the post, board and profile screen
 
 The app checks event signatures, trade references and token hand-off fields. It does not confirm a bank transfer, prove Lightning delivery, redeem Cashu proofs or guarantee settlement.
 
-Current main (`805a28b`, October 5) passes 141 unit tests and the production build. CI and production deployment succeeded for that commit. Open pull requests are separate from the deployed build.
+Main passes 225 unit tests and the production build in CI, and CI deploys the same commit to the live demo. Run `npm test` for the current count. Open pull requests are separate from the deployed build.
 
 ## where trust remains
 
