@@ -89,7 +89,8 @@ describe('extension signing', () => {
     expect(signer.pubkey).toBe(pk)
     const template = { kind: 1, tags: [], content: 'test', created_at: 1 }
     expect(verifyEvent(await signer.sign(template))).toBe(true)
-    expect(signEvent).toHaveBeenCalledWith(template)
+    expect(signEvent).toHaveBeenCalledWith(expect.objectContaining(template))
+    expect(signEvent.mock.calls[0][0]).not.toBe(template)
     expect(values.size).toBe(0)
   })
 })
@@ -185,5 +186,34 @@ describe('identity choice without automatic keys', () => {
     const { restoreSigner } = await import('./identity.js')
     const first = localSigner()
     expect((await restoreSigner()).pubkey).toBe(first.pubkey)
+  })
+})
+
+describe('immutable external signer request', () => {
+  it.each(['content', 'tags', 'created_at', 'kind'])('rejects in-place mutation of %s and leaves caller input unchanged', async (field) => {
+    const sk = generateSecretKey(), pk = getPublicKey(sk)
+    window.nostr = { getPublicKey: async () => pk, signEvent: async t => {
+      if (field === 'tags') t.tags[0][1] = 'changed'
+      else if (field === 'content') t.content = 'changed'
+      else t[field]++
+      return finalizeEvent(t, sk)
+    } }
+    const t = {kind:1,created_at:1,tags:[['p',pk]],content:'intended'}, original=structuredClone(t)
+    await expect((await extensionSigner()).sign(t)).rejects.toThrow('identity changed')
+    expect(t).toEqual(original)
+  })
+  it('rejects malformed extension public keys before returning a signer', async () => {
+    for (const pk of ['invalid-key', null, 'aa'.repeat(31), 'AA'.repeat(32)]) {
+      window.nostr = { getPublicKey: async () => pk }
+      await expect(extensionSigner()).rejects.toThrow('invalid public key')
+    }
+  })
+  it('does not let caller mutation during signing change expected fields', async () => {
+    const sk=generateSecretKey(),pk=getPublicKey(sk)
+    let finish
+    window.nostr={getPublicKey:async()=>pk,signEvent:t=>new Promise(resolve=>{finish=()=>resolve(finalizeEvent(t,sk))})}
+    const signer=await extensionSigner(),t={kind:1,created_at:1,tags:[],content:'intended'}
+    const pending=signer.sign(t);t.content='changed';finish()
+    expect((await pending).content).toBe('intended')
   })
 })
