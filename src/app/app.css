@@ -396,3 +396,11 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .identity-options input { width: 100%; min-width: 0; }
 .identity-options .btn { width: 100%; }
 .identity-guest { align-self: flex-start; background: none; border: 0; padding: 8px 0; color: var(--dim); cursor: pointer; }
+
+/* Keep identities and action buttons inside the narrowest follow list. */
+.follow-person { flex-wrap: nowrap; padding: 8px 0; }
+.follow-person .identity-label { flex: 1; overflow: hidden; }
+.follow-person .btn { flex-shrink: 0; }
+.identity-copy { max-width: 100%; overflow: hidden; }
+.offer .row > .dim { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.follow-person .identity-copy .name { max-width: 100%; }
