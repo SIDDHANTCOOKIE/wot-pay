@@ -11,7 +11,7 @@ export const DEFAULT_POLICY = { maxInr: 500, minSatsPerInr: 0, maxAgeSec: 1800 }
 // Why an offer is or isn't worth claiming. Returns null if it is.
 export function rejectReason(offer, { ranker, events, me, owner, policy, now }) {
   if (offer.pubkey === me || offer.pubkey === owner) return 'own offer'
-  if (tradeState(offer, events).status !== 'open') return 'not open'
+  if (tradeState(offer, events, { trustedClaimers: new Set([...ranker.hops.keys(), me, owner]) }).status !== 'open') return 'not open'
   const t = ranker.explain(offer.pubkey)
   if (t.hops !== 1) return 'not followed by owner'
   if (t.disputes > 0) return 'has disputes'
@@ -37,7 +37,7 @@ export function createBrain({
 
   function onBoard({ events, ranker, now = Math.floor(Date.now() / 1000) }) {
     const a = state.active
-    if (a) return follow(a, events)
+    if (a) return follow(a, events, ranker)
     if (state.paused) return []
 
     const offers = ranker.rank(
@@ -70,8 +70,8 @@ export function createBrain({
     ]
   }
 
-  function follow(a, events) {
-    const st = tradeState(a.offer, events)
+  function follow(a, events, ranker) {
+    const st = tradeState(a.offer, events, { trustedClaimers: new Set([...ranker.hops.keys(), me, owner]) })
     if (a.phase === 'stamping' || a.phase === 'releasing') return []
     const mine = st.claims.find((c) => c.pubkey === me)
     if (!mine) return []
