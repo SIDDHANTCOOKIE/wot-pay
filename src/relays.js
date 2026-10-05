@@ -5,8 +5,10 @@ import { assertNoToken } from './fence.js'
 import { GIFT_WRAP } from './dm.js'
 import { IDENTITY_RELAYS, writeRelays } from './identity-relays.js'
 
-// Ping keeps the connection count honest when a network drops silently.
-export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool({ enablePing: true, enableReconnect: true }) } = {}) {
+// No library ping: the 29s dummy-REQ ping killed healthy sockets on slow
+// mobile links, which read as random offline flaps. Real closes still
+// reconnect with backoff, and the board resubscribes when fully down.
+export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePool({ enablePing: false, enableReconnect: true }) } = {}) {
   const reading = new Set(relays.map(normalizeURL))
   const discovered = new Map()
   const identityQuery = (urls, filter, maxWait) => {
