@@ -218,6 +218,7 @@ function Live({ board, signer, offer, onDone }) {
         {state.claims.map(c => <div className="card" key={c.id}>
           <Name pubkey={c.pubkey} profiles={board.profiles} /><Copy text={c.pubkey} label="Copy claimant public key" /><TrustBadge trust={board.ranker.explain(c.pubkey)} pubkey={c.pubkey} />
           <p className="dim">{c.receive?.method === 'lightning' ? c.receive.address : c.receive?.method === 'cashu' ? 'Ecash receive request' : 'No receiving method given'}</p>
+          <p className="dim">{c.sats ? `Bids ${sats(c.sats)} (ask ${sats(offer.sats)})` : `Takes your ask of ${sats(offer.sats)}`}</p>
           <button className="btn primary" disabled={busy} onClick={() => { if(window.confirm('Accept this exact claimant? Only accept after reviewing their identity and receiving details.')) accept(c) }}>Accept claim</button>
         </div>)}{error && <p className="hint warn">{error}</p>}
       </div>}
@@ -232,7 +233,7 @@ function Live({ board, signer, offer, onDone }) {
           </div>
           <p>
             is paying <b>{rupees(offer.inr)}</b> to {offer.payee || offer.vpa}. When the payee confirms, send{' '}
-            <b>{sats(offer.sats)}</b>.
+            <b>{sats(state.agreedSats)}</b>{state.claim?.sats && state.claim.sats !== offer.sats ? ` (their bid, ask was ${sats(offer.sats)})` : ''}.
           </p>
           {receive?.method === 'lightning' && (
             <div className="payto">
