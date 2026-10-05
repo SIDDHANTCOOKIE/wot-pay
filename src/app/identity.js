@@ -88,8 +88,16 @@ export function importLocalKey(nsec) {
   localStorage.setItem(SIGNER, 'local')
   return localSigner()
 }
+export function hasLocalKey() {
+  return !!localStorage.getItem(SK)
+}
+export function createLocalIdentity() {
+  if (hasLocalKey()) throw new Error('A device key already exists. Export it before replacing it.')
+  saveSignerChoice('local')
+  return localSigner()
+}
 export function exportLocalKey() {
-  localSigner()
+  if (!hasLocalKey()) throw new Error('No device key to export')
   return nip19.nsecEncode(hexToBytes(localStorage.getItem(SK)))
 }
 export function saveSignerChoice(kind) {
@@ -101,7 +109,7 @@ export function signOut() {
   localStorage.removeItem(BUNKER)
 }
 export function signerChoice() {
-  return localStorage.getItem(SIGNER) || 'local'
+  return localStorage.getItem(SIGNER) || (hasLocalKey() ? 'local' : 'signed-out')
 }
 export async function restoreSigner() {
   const kind = signerChoice()
@@ -117,7 +125,7 @@ export async function restoreSigner() {
     if (!saved) throw new Error('Remote signer session missing. Connect again or choose the device key.')
     return bunkerSigner(saved)
   }
-  return localSigner()
+  return hasLocalKey() ? localSigner() : null
 }
 async function bounded(promise, close, ms = 30000) {
   let timer
