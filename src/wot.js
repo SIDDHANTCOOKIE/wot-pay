@@ -7,6 +7,9 @@ import { parse } from './events.js'
 // inside the viewer's graph, so a farm of fresh keys can't vouch for itself.
 
 export const HOP_WEIGHT = [1, 1, 0.5, 0.2] // index = hops; 0 = the viewer
+export const MAX_PAIR_STAMPS = 3
+export const MAX_SETTLE_WEIGHT = 3
+export const MAX_DISPUTE_WEIGHT = 1
 export const OUTSIDE_WEIGHT = 0.05
 export const MAX_HOPS = HOP_WEIGHT.length - 1
 
@@ -81,25 +84,32 @@ export function tallyStamps(stamps, dist, events = []) {
     if (!dist.has(s.pubkey)) continue // author outside the graph: ignored
     const key = `${s.pubkey}:${s.offerId}`
     const prev = byKey.get(key)
-    if (!prev || s.created_at > prev.created_at) byKey.set(key, s)
+    if (!prev || (s.created_at > prev.created_at || (s.created_at === prev.created_at && s.id < prev.id))) byKey.set(key, s)
   }
   const tally = new Map()
-  for (const s of byKey.values()) {
+  const pairs = new Map()
+  // One counterparty cannot supply unlimited reputation through repeated offers.
+  const bounded = [...byKey.values()].sort((a, b) => b.created_at - a.created_at || String(a.id || a.offerId).localeCompare(String(b.id || b.offerId)))
+  for (const s of bounded) {
+    const pair = `${s.pubkey}:${s.counterparty}`
+    const count = pairs.get(pair) || 0
+    if (count >= MAX_PAIR_STAMPS) continue
+    pairs.set(pair, count + 1)
     const t = tally.get(s.counterparty) || { settles: 0, disputes: 0 }
     const w = weightOf(dist, s.pubkey)
-    if (s.type === 'settled') t.settles += w
-    else t.disputes += w
+    if (s.type === 'settled') t.settles = Math.min(MAX_SETTLE_WEIGHT, t.settles + w)
+    else t.disputes = Math.min(MAX_DISPUTE_WEIGHT, t.disputes + w)
     tally.set(s.counterparty, t)
   }
   return tally
 }
 
 // Trust score for one pubkey. Distance sets the base, settles raise it
-// slowly (log), disputes cut it hard.
+// within a capped bonus; dispute weight is capped so repeated claims cannot erase the base.
 export function trustScore(pk, dist, tally) {
   const t = tally.get(pk) || { settles: 0, disputes: 0 }
   const base = weightOf(dist, pk)
-  return (base * (1 + Math.log2(1 + t.settles))) / (1 + 3 * t.disputes)
+  return (base * (1 + Math.log2(1 + Math.min(MAX_SETTLE_WEIGHT, t.settles)))) / (1 + 3 * Math.min(MAX_DISPUTE_WEIGHT, t.disputes))
 }
 
 export function createRanker({ viewer, followLists = [], stamps = [], events = [] }) {
