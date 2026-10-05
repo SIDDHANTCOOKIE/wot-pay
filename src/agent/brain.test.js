@@ -229,3 +229,13 @@ describe('outsider claim protection', () => {
     expect(rejectReason(o, { ranker: ranker(), events: [o, c], me: agent.pk, owner: owner.pk, policy: DEFAULT_POLICY, now })).toBeNull()
   })
 })
+describe('exact owner command grammar',()=>{
+ it.each(['got no sats','no problem got sats','paid nothing yet'])('does not apply ambiguous command %s',cmd=>{
+  const brain=setup(),o=mkOffer(friend)
+  const [action]=brain.onBoard({events:[o],ranker:ranker(),now})
+  const c=ev(action.template,agent)
+  brain.onBoard({events:[o,c],ranker:ranker(),now})
+  const before=brain.snapshot(),out=brain.onOwnerMessage(cmd)
+  expect(brain.snapshot()).toEqual(before);expect(out).toHaveLength(1);expect(out[0].type).toBe('dm');expect(out[0].text).toContain('No trade state changed')
+ })
+})
