@@ -6,7 +6,7 @@ export async function inrPerBtc() {
   try {
     const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=inr')
     const value = (await r.json())?.bitcoin?.inr
-    if (value > 0) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
       cached = { value, at: Date.now() }
       return value
     }
@@ -14,4 +14,8 @@ export async function inrPerBtc() {
   return null
 }
 
-export const inrToSats = (inr, price) => (price ? Math.round((inr / price) * 1e8) : 0)
+export const inrToSats = (inr, price) => {
+  if (!Number.isFinite(inr) || inr <= 0 || !Number.isFinite(price) || price <= 0) return 0
+  const sats = Math.round((inr / price) * 1e8)
+  return Number.isSafeInteger(sats) && sats > 0 ? sats : 0
+}
