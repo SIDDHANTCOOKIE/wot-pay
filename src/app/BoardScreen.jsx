@@ -1,10 +1,15 @@
+<<<<<<< /tmp/wot-warning-stage/src/app/BoardScreen.jsx
+import TradeOutcome from './TradeOutcome.jsx'
+import { useMemo, useState } from 'react'
+=======
 import { useEffect, useMemo, useState } from 'react'
+>>>>>>> /tmp/wot-clock-fix/src/app/BoardScreen.jsx
 import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { tokenIssues } from '../dm.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
-import Orbit, { where, SettleMark } from './Orbit.jsx'
+import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
@@ -188,6 +193,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
         <div className="dim">to {offer.payee || offer.vpa}</div>
         <div className="earn">You get {sats(offer.sats)}</div>
         <MintChip mint={offer.mint} />
+        {offer.note && <p className="offer-note">{offer.note}</p>}
       </div>
 
       <div className="card trust-card">
@@ -319,21 +325,13 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       )}
 
       {myStamp && (
-        <div className={`card done ${myStamp.type}`}>
-          <SettleMark ok={myStamp.type === 'settled'} />
-          <div className="hero-word">
-            {myStamp.type === 'settled'
-              ? state.status === 'settled'
-                ? 'Settled.'
-                : 'You stamped settled.'
-              : 'Disputed.'}
-          </div>
+        <TradeOutcome state={state} ownStamp={myStamp}>
           <div className="dim">Your stamp is public and counts in your web’s trust scores.</div>
           <button className="btn primary" onClick={onBack}>
             Back to board
           </button>
-        </div>
+        </TradeOutcome>
       )}
     </section>
   )
-}
+      }
