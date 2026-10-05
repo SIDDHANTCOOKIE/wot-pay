@@ -73,6 +73,8 @@ const outbox = createOutbox({
   saved: saved?.queue || [],
   persist,
   completed: () => brain.completed(),
+  snapshot: () => structuredClone(brain.snapshot()),
+  restore: (before) => brain.restore(before),
   deliver: async (item) => {
     if (item.wraps) await client.sendWrapped(item.wraps)
     else {
