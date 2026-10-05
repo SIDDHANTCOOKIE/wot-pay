@@ -95,11 +95,17 @@ export function exportLocalKey() {
 export function saveSignerChoice(kind) {
   localStorage.setItem(SIGNER, kind)
 }
+// Signing out retains the device key for recovery, but drops the remote session.
+export function signOut() {
+  localStorage.setItem(SIGNER, 'signed-out')
+  localStorage.removeItem(BUNKER)
+}
 export function signerChoice() {
   return localStorage.getItem(SIGNER) || 'local'
 }
 export async function restoreSigner() {
   const kind = signerChoice()
+  if (kind === 'signed-out') return null
   if (kind === 'extension') {
     const signer = await extensionSigner()
     if (!signer)

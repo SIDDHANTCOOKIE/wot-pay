@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { toHexPubkey, npubShort, prefs, restoreSigner } from './identity.js'
+import { toHexPubkey, npubShort, prefs, restoreSigner, signOut } from './identity.js'
 import { useBoard } from './useBoard.js'
 import { useTokens } from './useTokens.js'
 import PayScreen from './PayScreen.jsx'
@@ -11,6 +11,7 @@ import TrustManager from './TrustManager.jsx'
 export default function App() {
   const [signer, setSigner] = useState(null)
   const [signerError, setSignerError] = useState('')
+  const [restoring, setRestoring] = useState(true)
   useEffect(() => {
     let live = true,
       current
@@ -18,12 +19,13 @@ export default function App() {
       .then((s) => {
         current = s
         if (live) setSigner(s)
-        else s.close?.()
+        else s?.close?.()
       })
       .catch(
         () =>
           live && setSignerError('Saved signer unavailable. Reconnect it or explicitly use the device key.'),
       )
+      .finally(() => live && setRestoring(false))
     return () => {
       live = false
       current?.close?.()
@@ -34,6 +36,16 @@ export default function App() {
     setSigner(next)
     setSignerError('')
     setActiveId(null)
+    setShowSettings(false)
+  }
+  function leaveIdentity() {
+    if (!window.confirm('Sign out here? Posted offers and claims remain active. Finish or cancel them first if needed. Your device key will be kept in this browser.')) return
+    signOut()
+    signer?.close?.()
+    setSigner(null)
+    setSignerError('')
+    setActiveId(null)
+    setShowSettings(false)
   }
   const [tab, setTab] = useState(() =>
     location.hash === '#board' || location.hash.startsWith('#offer/') ? 'board' : 'pay',
@@ -60,11 +72,13 @@ export default function App() {
 
   if (!signer)
     return (
-      <main className="app">
+      <div className="app">
+      <main className="screen">
         <h1>Nostr sign-in</h1>
-        <p role="status">{signerError || 'Restoring your signer…'}</p>
-        {signerError && <SigningSettings signer={null} onSigner={chooseSigner} />}
+        <p role="status">{signerError || (restoring ? 'Restoring your signer…' : 'Signed out. Choose a signer to continue.')}</p>
+        {!restoring && <SigningSettings signer={null} onSigner={chooseSigner} />}
       </main>
+      </div>
     )
 
   return (
@@ -138,7 +152,7 @@ export default function App() {
           >
             Save
           </button>
-          <SigningSettings signer={signer} onSigner={chooseSigner} />
+          <SigningSettings signer={signer} onSigner={chooseSigner} onSignOut={leaveIdentity} />
           <TrustManager board={board} signer={signer} onChanged={() => setTrustRevision((r) => r + 1)} />
         </ProfileScreen>
       )}
