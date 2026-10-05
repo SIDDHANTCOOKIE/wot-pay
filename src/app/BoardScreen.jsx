@@ -6,7 +6,7 @@ import { tokenIssues } from '../dm.js'
 import { upiLink } from '../upi.js'
 import { prefs } from './identity.js'
 import Orbit, { where } from './Orbit.jsx'
-import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
+import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
 export default function BoardScreen({ board, signer, onRequireIdentity }) {
@@ -218,6 +218,8 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
             : `Score ${trust.score.toFixed(2)}. Settles and disputes only count from people in your web.`}
         </p>
       </div>
+
+      {signer && !mineClaim && <ExposureWarning trust={trust} loading={board.trustLoading} />}
 
       {!signer && <div className="card"><p>Guest demo mode is read-only. Choose a signer before claiming or paying.</p><button className="btn primary" onClick={onRequireIdentity}>Choose identity to claim</button></div>}
       {signer && !mineClaim && (

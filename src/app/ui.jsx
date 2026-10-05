@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { exposureWarning } from './exposure.js'
 import Orbit, { tone, where } from './Orbit.jsx'
 import { npubShort } from './identity.js'
 
@@ -13,6 +14,11 @@ export function Name({ pubkey, names, profiles, you, showNpub = false }) {
       <span className="identity-avatar placeholder" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>}
     <span className="identity-copy"><span className="name">{name}{pubkey === you && name !== short ? ' (you)' : ''}</span>{showNpub && name !== short && <span className="identity-npub">{short}</span>}</span>
   </span>
+}
+
+export function ExposureWarning({ trust, loading }) {
+  const message = exposureWarning(trust, loading)
+  return message ? <p className="hint warn">{message}</p> : null
 }
 
 // Trust at a glance: a small orbit plus where they sit and their record.
