@@ -17,8 +17,8 @@ export default function BoardScreen({ board, signer, onRequireIdentity }) {
 
   const offers = useMemo(() => board.events.filter((e) => e.type === 'offer'), [board.events])
   const withState = useMemo(
-    () => offers.map((o) => ({ o, s: tradeState(o, board.events) })),
-    [offers, board.events],
+    () => offers.map((o) => ({ o, s: tradeState(o, board.events, { trustedClaimers: board.ranker.hops }) })),
+    [offers, board.events, board.ranker],
   )
 
   const mine = withState.filter(({ s }) => !!me && s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
@@ -121,7 +121,7 @@ function OfferRow({ o, board, me, onOpen, active }) {
 
 function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
   const me = signer?.pubkey
-  const state = tradeState(offer, board.events)
+  const state = tradeState(offer, board.events, { trustedClaimers: board.ranker.hops })
   const mineClaim = state.claims.find((c) => c.pubkey === me)
   const leading = !!me && state.claim?.pubkey === me
   const myStamp = state.takerStamp && leading ? state.takerStamp : null
