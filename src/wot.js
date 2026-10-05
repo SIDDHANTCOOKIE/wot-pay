@@ -1,4 +1,5 @@
 import { KIND } from './kinds.js'
+import { latestFollow } from './follows.js'
 import { parse } from './events.js'
 
 // Web-of-trust ranking.
@@ -15,12 +16,7 @@ export const MAX_HOPS = HOP_WEIGHT.length - 1
 
 // followLists: kind-3 events. Keeps only the newest list per author.
 export function buildGraph(followLists) {
-  const latest = new Map()
-  for (const ev of followLists) {
-    if (ev.kind !== 3) continue
-    const prev = latest.get(ev.pubkey)
-    if (!prev || ev.created_at > prev.created_at) latest.set(ev.pubkey, ev)
-  }
+  const latest = new Map([...new Set(followLists.filter(e => e?.kind === 3).map(e => e.pubkey))].map(pk => [pk, latestFollow(followLists, pk)]).filter(([,e]) => e))
   const graph = new Map()
   for (const [pk, ev] of latest) {
     graph.set(pk, new Set(ev.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1])))
