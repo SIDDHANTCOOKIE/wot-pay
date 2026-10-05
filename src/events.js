@@ -164,10 +164,11 @@ export function cancelClaim({ offerId, claimId }) {
 
 // Parse a received event into a plain object. Returns null on anything malformed.
 export function parse(ev) {
+  const now = Math.floor(Date.now() / 1000)
   try {
     if (!ev || !Object.values(KIND).includes(ev.kind)) return null
     if (!HEX64.test(ev.id || '') || !HEX64.test(ev.pubkey || '')) return null
-    if (!Number.isSafeInteger(ev.created_at) || ev.created_at < 0) return null
+    if (!Number.isSafeInteger(ev.created_at) || ev.created_at < 0 || ev.created_at > now + 60) return null
     if (typeof ev.content !== 'string' || ev.content.length > 16000) return null
     if (
       !Array.isArray(ev.tags) ||
