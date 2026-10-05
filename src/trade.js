@@ -60,7 +60,8 @@ export function tradeState(offer, events) {
   if (status === 'open' && offer.expiresAt && offer.expiresAt < Math.floor(Date.now() / 1000))
     status = 'expired'
 
-  return { status, claims, claim, acceptance, accepted: !!acceptance && acceptance.claimId === claim?.id, makerStamp, takerStamp }
+  const agreedSats = claim?.sats ?? offer.sats
+  return { status, claims, claim, acceptance, accepted: !!acceptance && acceptance.claimId === claim?.id, makerStamp, takerStamp, agreedSats }
 }
 
 const isStamp = (e) => e.type === 'settled' || e.type === 'disputed'
