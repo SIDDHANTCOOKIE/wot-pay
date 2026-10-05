@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { installController } from './install.js'
 
-export default function InstallHint() {
+export default function InstallHint({ hidden = false }) {
   const [state, setState] = useState(() => installController.get())
   const [help, setHelp] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => installController.subscribe(setState), [])
-  if (state.installed) return null
+  if (hidden || state.installed) return null
   async function install() {
     if (busy) return
     setBusy(true)
