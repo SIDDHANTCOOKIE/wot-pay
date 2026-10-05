@@ -4,7 +4,7 @@
 
 **scan a UPI QR. let your web of trust do the matching. settle in sats.**
 
-[Live demo](https://wot-pay.vercel.app/) · [Phone checklist](docs/device-checklist.md) · [MIT](LICENSE)
+[Live demo](https://wot-pay.vercel.app/) · [Demo video](https://youtube.com/shorts/HrDpkWDtRf0) · [Phone checklist](docs/device-checklist.md) · [MIT](LICENSE)
 
 Freedom Stack (Nostr + Ecash) · BOSS Battle, Bitshala · built by siddhant
 
@@ -98,7 +98,7 @@ The screenshots show signed sample offers and the post, board and profile screen
 
 The app checks event signatures, trade references and token hand-off fields. It does not confirm a bank transfer, prove Lightning delivery, redeem Cashu proofs or guarantee settlement.
 
-Current main (`805a28b`, October 5) passes 141 unit tests and the production build. CI and production deployment succeeded for that commit. Open pull requests are separate from the deployed build.
+Main passes 225 unit tests and the production build in CI, and CI deploys the same commit to the live demo. Run `npm test` for the current count. Open pull requests are separate from the deployed build.
 
 ## where trust remains
 
@@ -114,9 +114,9 @@ There is no atomic swap, UTR verification, custody or escrow. Deterministic clai
 
 ## next
 
-Escrow for the sats leg is the next planned step. It is not implemented in this demo.
+Optional escrow for the sats leg is possible future work. It is not part of this design and is not implemented in this demo.
 
-Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app is available above; a demo recording is not linked yet.
+Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app and a short demo recording are linked at the top.
 
 Safer key storage, longer trade history and real remote-signer/daemon restart testing are follow-up work.
 
