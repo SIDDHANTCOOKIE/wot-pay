@@ -1,24 +1,26 @@
 import { useEffect, useState } from 'react'
+import { installController } from './install.js'
 
 export default function InstallHint() {
-  const [prompt, setPrompt] = useState(null)
+  const [state, setState] = useState(() => installController.get())
   const [help, setHelp] = useState(false)
-  const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true)
-  useEffect(() => {
-    const ready = (e) => { e.preventDefault(); setPrompt(e) }
-    const done = () => { setInstalled(true); setPrompt(null) }
-    window.addEventListener('beforeinstallprompt', ready)
-    window.addEventListener('appinstalled', done)
-    return () => { window.removeEventListener('beforeinstallprompt', ready); window.removeEventListener('appinstalled', done) }
-  }, [])
-  if (installed) return null
+  const [busy, setBusy] = useState(false)
+  useEffect(() => installController.subscribe(setState), [])
+  if (state.installed) return null
   async function install() {
-    if (!prompt) { setHelp(!help); return }
-    try { await prompt.prompt(); await prompt.userChoice } catch { setHelp(true) }
-    finally { setPrompt(null) }
+    if (busy) return
+    setBusy(true)
+    const outcome = await installController.install()
+    if (outcome === 'unavailable') setHelp(true)
+    setBusy(false)
   }
-  return <div className="card">
-    <button className="btn ghost" onClick={install}>Install app</button>
-    {help && <p className="dim">Open this site in a regular browser, not private mode. Android Chrome: menu → Install app or Add to Home screen. iPhone Safari: Share → Add to Home Screen, then Open as Web App. The browser decides when an install prompt is available. Installing does not make trading work offline.</p>}
+  if (state.popup) return <aside className="install-toast" aria-label="Install wot-pay" role="region">
+    <div className="row"><strong>Install wot-pay</strong><button className="install-dismiss" aria-label="Dismiss install suggestion" onClick={() => installController.dismiss()}>Not now</button></div>
+    <p>{state.prompt ? 'Tap Install, then confirm in your browser.' : 'Safari: Share → Add to Home Screen → Open as Web App.'}</p>
+    {state.prompt && <button className="btn primary" disabled={busy} onClick={install}>Install</button>}
+  </aside>
+  return <div className="install-inline">
+    <button className="install-link" disabled={busy} onClick={install}>Install app</button>
+    {help && <p className="fine">{state.ios ? 'Safari: Share → Add to Home Screen → Open as Web App.' : 'Chrome has not offered a native install prompt. Try a regular tab, then browser menu → Install app.'} The browser asks you to confirm.</p>}
   </div>
 }
