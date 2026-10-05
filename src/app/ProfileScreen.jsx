@@ -1,7 +1,6 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { tradeState } from '../trade.js'
-import { npubShort } from './identity.js'
-import { Copy, rupees, sats, ago } from './ui.jsx'
+import { Copy, Name, rupees, sats, ago } from './ui.jsx'
 import * as nip19 from 'nostr-tools/nip19'
 
 // Your key, how the board sees you, and every trade you touched.
@@ -65,8 +64,8 @@ export default function ProfileScreen({ board, signer, onClose, children }) {
         </div>
 
         <div className="card">
-          <div className="row">
-            <span className="mono">{npubShort(me)}</span>
+          <div className="row profile-identity">
+            <Name pubkey={me} profiles={board.profiles} showNpub />
             <Copy text={npub} label="Copy npub" />
           </div>
           <div className="stats">
