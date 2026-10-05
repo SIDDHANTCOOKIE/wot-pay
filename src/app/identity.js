@@ -30,18 +30,20 @@ export function localSigner() {
 export async function extensionSigner() {
   if (!window.nostr) return null
   const pubkey = await window.nostr.getPublicKey()
+  if (!/^[0-9a-f]{64}$/.test(pubkey)) throw new Error('Extension returned an invalid public key')
   return {
     kind: 'extension',
     pubkey,
     sign: async (t) => {
-      const ev = await window.nostr.signEvent(t)
+      const expected = structuredClone(t)
+      const ev = await window.nostr.signEvent(structuredClone(expected))
       if (
         !verifyEvent(ev) ||
         ev.pubkey !== pubkey ||
-        ev.kind !== t.kind ||
-        ev.created_at !== t.created_at ||
-        ev.content !== t.content ||
-        JSON.stringify(ev.tags) !== JSON.stringify(t.tags)
+        ev.kind !== expected.kind ||
+        ev.created_at !== expected.created_at ||
+        ev.content !== expected.content ||
+        JSON.stringify(ev.tags) !== JSON.stringify(expected.tags)
       )
         throw new Error('Extension identity changed. Reconnect before posting.')
       return ev
@@ -158,14 +160,15 @@ async function bunkerSigner(saved) {
       pubkey,
       close,
       sign: async (template) => {
-        const ev = await bounded(remote.signEvent(template), close)
+        const expected = structuredClone(template)
+        const ev = await bounded(remote.signEvent(structuredClone(expected)), close)
         if (
           !verifyEvent(ev) ||
           ev.pubkey !== pubkey ||
-          ev.kind !== template.kind ||
-          ev.content !== template.content ||
-          ev.created_at !== template.created_at ||
-          JSON.stringify(ev.tags) !== JSON.stringify(template.tags)
+          ev.kind !== expected.kind ||
+          ev.content !== expected.content ||
+          ev.created_at !== expected.created_at ||
+          JSON.stringify(ev.tags) !== JSON.stringify(expected.tags)
         )
           throw new Error('Remote signer returned a changed or invalid event')
         return ev
