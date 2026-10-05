@@ -1,9 +1,5 @@
-<<<<<<< /tmp/wot-warning-stage/src/app/BoardScreen.jsx
 import TradeOutcome from './TradeOutcome.jsx'
-import { useMemo, useState } from 'react'
-=======
 import { useEffect, useMemo, useState } from 'react'
->>>>>>> /tmp/wot-clock-fix/src/app/BoardScreen.jsx
 import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { tokenIssues } from '../dm.js'
@@ -334,4 +330,4 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       )}
     </section>
   )
-      }
+}
