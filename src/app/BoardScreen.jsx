@@ -22,7 +22,7 @@ export default function BoardScreen({ board, signer, onRequireIdentity }) {
     [offers, board.events, board.ranker],
   )
 
-  const mine = withState.filter(({ s }) => !!me && s.claim?.pubkey === me && s.status !== 'settled').map(({ o }) => o)
+  const mine = withState.filter(({ s }) => !!me && s.claims.some(c => c.pubkey === me) && s.status !== 'settled').map(({ o }) => o)
   const open = board.ranker.rank(
     withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o),
   )
@@ -170,12 +170,13 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
     setClaimPending(false)
   }
   const stamp = (kind) => {
+    if (!state.accepted || !leading) return
     if (!signer) { onRequireIdentity?.(); return }
     const args = { offerId: offer.id, claimId: mineClaim.id, counterparty: offer.pubkey }
     send(() => (kind === 'settled' ? settled(args) : disputed({ ...args, reason: 'paid UPI, no sats' })))
   }
 
-  const step = !mineClaim ? 0 : myStamp ? 3 : state.makerStamp ? 2 : 1
+  const step = !mineClaim || !state.accepted ? 0 : myStamp ? 3 : state.makerStamp ? 2 : 1
 
   return (
     <section className="screen">
@@ -187,9 +188,9 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       <div className="card summary">
         <div className="big">{rupees(offer.inr)}</div>
         <div className="dim">to {offer.payee || offer.vpa}</div>
+        {offer.note && <p className="offer-note">{offer.note}</p>}
         <div className="earn">You get {sats(offer.sats)}</div>
         <MintChip mint={offer.mint} />
-        {offer.note && <p className="offer-note">{offer.note}</p>}
       </div>
 
       <div className="card trust-card">
@@ -247,31 +248,27 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
                 ? 'Already claimed'
                 : busy || claimPending
                   ? 'Claiming…'
-                  : 'Claim and pay'}
+                  : 'Request claim'}
           </button>
         </div>
       )}
 
-      {claimPending && (
+      {claimPending && !mineClaim && (
         <div className="card dim" role="status">
           Claim pending. Waiting for relay updates. Do not pay yet.
         </div>
       )}
-      {mineClaim && !leading && (
+      {mineClaim && state.accepted && !leading && (
         <div className="card hint warn" role="status">
           Claim lost. Someone else leads this trade. Do not pay.
         </div>
       )}
 
-      {mineClaim && leading && !myStamp && !claimPending && (
+      {mineClaim && !state.accepted && !myStamp && <div className="card hint warn" role="status">Waiting for maker acceptance. Do not pay yet.</div>}
+      {mineClaim && leading && state.accepted && !myStamp && !claimPending && (
         <div className="card">
-          <p>
-            <span className="hint warn">
-              You lead in the events currently received. Relay delay can still reveal another claim. Verify
-              the maker agrees before paying.
-            </span>
-            Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span>
-          </p>
+          <p>The maker signed acceptance for your exact claim. Check the payee and amount before paying.</p>
+          <p>Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span></p>
           <div className="actions">
             <Copy text={offer.vpa} label="Copy UPI ID" />
             <a className="btn primary" href={upiLink(offer)}>
