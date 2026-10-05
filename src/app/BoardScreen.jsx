@@ -129,6 +129,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
   const leading = !!me && state.claim?.pubkey === me
   const myStamp = state.takerStamp && leading ? state.takerStamp : null
   const [ln, setLn] = useState(prefs.lnAddress())
+  const [bid, setBid] = useState('')
   const [how, setHow] = useState(() => (board.cash.supported ? prefs.receive() : 'lightning'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -165,7 +166,14 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       prefs.setLnAddress(ln.trim())
       receive = { method: 'lightning', address: ln.trim() }
     }
-    await send(() => claimEvent({ offerId: offer.id, maker: offer.pubkey, receive }))
+    const bidText = bid.trim()
+    const bidSats = bidText ? Number(bidText) : undefined
+    if (bidSats !== undefined && !(Number.isSafeInteger(bidSats) && bidSats > 0)) {
+      setError('Your bid must be a positive whole number of sats. Leave it blank to take the ask.')
+      setClaimPending(false)
+      return
+    }
+    await send(() => claimEvent({ offerId: offer.id, maker: offer.pubkey, receive, sats: bidSats }))
     await new Promise((r) => setTimeout(r, 3000))
     setClaimPending(false)
   }
@@ -189,7 +197,9 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
         <div className="big">{rupees(offer.inr)}</div>
         <div className="dim">to {offer.payee || offer.vpa}</div>
         {offer.note && <p className="offer-note">{offer.note}</p>}
-        <div className="earn">You get {sats(offer.sats)}</div>
+        <div className="earn">
+          {state.accepted && state.claim?.sats ? `Agreed ${sats(state.agreedSats)}` : `You get ${sats(offer.sats)}`}
+        </div>
         <MintChip mint={offer.mint} />
       </div>
 
@@ -240,6 +250,22 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
                 : 'Ecash DMs need the key on this device. Use Lightning, or switch back to the local key.'}
             </p>
           )}
+          <div className="field">
+            <span>Your bid (optional)</span>
+            <div className="amount small">
+              <input
+                inputMode="numeric"
+                value={bid}
+                onChange={(e) => setBid(e.target.value.replace(/\D/g, ''))}
+                placeholder={String(offer.sats)}
+              />
+              <span>sats</span>
+            </div>
+            <small className="dim">
+              Blank takes the ask of {sats(offer.sats)}. The maker picks which claim to accept, so your bid
+              is what you agree to receive.
+            </small>
+          </div>
           {error && <p className="hint warn">{error}</p>}
           <button className="btn primary wide" disabled={busy || !canClaim} onClick={doClaim}>
             {expired
