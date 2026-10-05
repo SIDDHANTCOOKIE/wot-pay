@@ -77,7 +77,6 @@ export default function App() {
       : sessionStorage.removeItem('wot-pay:active')
   }, [activeId])
 
-  const usingOwnGraph = trustRoot === signer?.pubkey
 
   function requireIdentity() { setGuest(false); setShowSettings(false) }
   if (!signer && !guest)
@@ -101,13 +100,6 @@ export default function App() {
           {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Guest · choose identity'}
         </button>
       </header>
-
-      {signer && usingOwnGraph && !showSettings && (
-        <button className="nudge" onClick={() => setShowSettings(true)}>
-          Choose a public npub for trust ranking (not sign-in)
-          <span className="go">→</span>
-        </button>
-      )}
 
       <main>
         <InstallHint />
@@ -139,9 +131,10 @@ export default function App() {
       {showSettings && signer && (
         <ProfileScreen board={board} signer={signer} onClose={() => setShowSettings(false)}>
           <h2>Your web of trust</h2>
+          <p className="dim">Your signed-in identity's follows are used automatically.</p>
+          <details className="identity-options"><summary>Use another trust graph (optional)</summary>
           <p className="dim">
-            Paste the npub you use on Damus or Primal. We read who it follows to rank the board. Nothing is
-            posted from it.
+            Override the graph with a public npub. Leave it empty to use your signed-in identity. Nothing is posted from this field.
           </p>
           <input
             value={trustInput}
@@ -160,6 +153,7 @@ export default function App() {
           >
             Save
           </button>
+          </details>
           <SigningSettings signer={signer} onSigner={chooseSigner} onSignOut={leaveIdentity} />
           <TrustManager board={board} signer={signer} onChanged={() => setTrustRevision((r) => r + 1)} />
         </ProfileScreen>
