@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRelayClient } from '../relays.js'
 import { parse } from '../events.js'
 import { createRanker, loadTrustData } from '../wot.js'
-import { readProfiles } from './profiles.js'
+import { loadProfiles } from './profiles.js'
 
 const DAY = 24 * 3600
 
@@ -64,13 +64,12 @@ export function useBoard(trustRoot, me, revision = 0) {
     )
     if (!want.length) return
     want.forEach((pk) => asked.current.add(pk))
-    const groupsToQuery = [want.filter(pk => pk !== me), want.filter(pk => pk === me)].filter(group => group.length)
-    Promise.all(groupsToQuery.map(authors => client.queryIdentity({ kinds: [0], authors }, { discover: authors.length === 1 && authors[0] === me }))).then((groups) => {
-      const list = groups.flat()
-      const out = readProfiles(list, want)
-      setProfiles((p) => ({ ...p, ...out }))
+    let live = true
+    loadProfiles(client, want, { owner: trustRoot || me }).then(out => {
+      if (live) setProfiles(p => ({ ...p, ...out }))
     }).catch(() => {})
-  }, [client, events, me, profileRetry, revision])
+    return () => { live = false; want.forEach(pk => asked.current.delete(pk)) }
+  }, [client, events, me, trustRoot, profileRetry, revision])
 
   const names = useMemo(() => Object.fromEntries(Object.entries(profiles).map(([pk, p]) => [pk, p.name])), [profiles])
 
