@@ -3,7 +3,6 @@ import { createLocalIdentity, hasLocalKey, localSigner, saveSignerChoice } from 
 import SigningSettings from './SigningSettings.jsx'
 
 export default function IdentityChoice({ onSigner, onGuest, error = '' }) {
-  const [existing, setExisting] = useState(false)
   const [problem, setProblem] = useState('')
   function device() {
     try {
@@ -12,15 +11,17 @@ export default function IdentityChoice({ onSigner, onGuest, error = '' }) {
       onSigner(next)
     } catch (e) { setProblem(e.message) }
   }
-  return <section className="screen">
-    <h1>How would you like to use wot-pay?</h1>
-    <p className="lede">Choose a signing identity to trade, or explore without one.</p>
+  return <section className="screen identity-entry">
+    <div className="brand identity-brand">wot<span>·</span>pay</div>
+    <h1>Your key. Your network.</h1>
+    <p className="lede">Sign in with Nostr to trade with your network.</p>
     {(error || problem) && <p role="alert" className="hint warn">{error || problem}</p>}
     <button className="btn primary" onClick={device}>{hasLocalKey() ? 'Use saved device key' : 'Create a new key'}</button>
-    <p className="fine">A new key is stored only in this browser. Export a backup before trading. It is not your existing Nostr account.</p>
-    <button className="btn ghost" onClick={() => setExisting(!existing)}>I already have a key</button>
-    {existing && <SigningSettings signer={null} onSigner={onSigner} />}
-    <button className="btn ghost" onClick={onGuest}>Browse as guest</button>
-    <p className="fine">Demo mode, read-only: view public offers and learn how trust works. No key is created. Posting, claiming and settlement need a signer.</p>
+    <p className="fine">Device keys stay in this browser. Back up before trading.</p>
+    <details className="identity-options"><summary>Use an existing Nostr identity</summary>
+      <SigningSettings signer={null} onSigner={onSigner} />
+    </details>
+    <button className="identity-guest" onClick={onGuest}>Explore as guest</button>
+    <p className="fine">Read-only. No key needed.</p>
   </section>
 }
