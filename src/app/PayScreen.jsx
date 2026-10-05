@@ -1,7 +1,7 @@
 import TradeOutcome from './TradeOutcome.jsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { readToken, tokenIssues } from '../dm.js'
-import { offer as offerEvent, settled, disputed } from '../events.js'
+import { offer as offerEvent, acceptClaim, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
@@ -161,8 +161,16 @@ function Live({ board, signer, offer, onDone }) {
   const { claim, makerStamp, status } = state
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  async function accept(c) {
+    if (busy || state.accepted || status !== 'open' || (offer.expiresAt && offer.expiresAt <= Math.floor(Date.now()/1000))) return
+    setBusy(true); setError('')
+    try { await board.publish(await signer.sign(acceptClaim({offerId: offer.id, claimId: c.id, counterparty: c.pubkey}))) }
+    catch(e) { setError(e.message) } finally { setBusy(false) }
+  }
+
 
   async function stamp(kind) {
+    if (!state.accepted) return
     setBusy(true)
     setError('')
     try {
@@ -195,17 +203,25 @@ function Live({ board, signer, offer, onDone }) {
         {offer.note && <p className="offer-note">{offer.note}</p>}
       </div>
 
-      {status === 'open' && (
+      {status === 'open' && state.claims.length === 0 && (
         <div className="card waiting">
           <div className="pulse" />
           <div>
-            <div className="big">Waiting for someone to pay</div>
+            <div className="big">Waiting for incoming claims</div>
             <div className="dim">Posted {ago(offer.created_at)}. People close to you see it at the top.</div>
           </div>
         </div>
       )}
 
-      {claim && !makerStamp && (
+      {status === 'open' && !state.accepted && !makerStamp && state.claims.length > 0 && <div className="card">
+        <h2>Review incoming claims</h2><p className="dim">Accept one person before they pay. A follow label is not payment proof.</p>
+        {state.claims.map(c => <div className="card" key={c.id}>
+          <Name pubkey={c.pubkey} profiles={board.profiles} /><Copy text={c.pubkey} label="Copy claimant public key" /><TrustBadge trust={board.ranker.explain(c.pubkey)} pubkey={c.pubkey} />
+          <p className="dim">{c.receive?.method === 'lightning' ? c.receive.address : c.receive?.method === 'cashu' ? 'Ecash receive request' : 'No receiving method given'}</p>
+          <button className="btn primary" disabled={busy} onClick={() => { if(window.confirm('Accept this exact claimant? Only accept after reviewing their identity and receiving details.')) accept(c) }}>Accept claim</button>
+        </div>)}{error && <p className="hint warn">{error}</p>}
+      </div>}
+      {claim && state.accepted && !makerStamp && (
         <div className="card claim">
           <div className="trust-card flat">
             <Orbit trust={board.ranker.explain(claim.pubkey)} pubkey={claim.pubkey} size={72} />
