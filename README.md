@@ -4,7 +4,7 @@
 
 **scan a UPI QR. let your web of trust do the matching. settle in sats.**
 
-[Live demo](https://wot-pay.vercel.app/) · [Phone checklist](docs/device-checklist.md) · [MIT](LICENSE)
+[Live demo](https://wot-pay.vercel.app/) · [Demo video](https://youtube.com/shorts/HrDpkWDtRf0) · [Phone checklist](docs/device-checklist.md) · [MIT](LICENSE)
 
 Freedom Stack (Nostr + Ecash) · BOSS Battle, Bitshala · built by siddhant
 
@@ -116,7 +116,7 @@ There is no atomic swap, UTR verification, custody or escrow. Deterministic clai
 
 Escrow for the sats leg is the next planned step. It is not implemented in this demo.
 
-Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app is available above; a demo recording is not linked yet.
+Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app and a short demo recording are linked at the top.
 
 Safer key storage, longer trade history and real remote-signer/daemon restart testing are follow-up work.
 
