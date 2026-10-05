@@ -1,5 +1,5 @@
 // Stable signed payloads survive retry and restart; later actions wait for earlier success.
-export function createOutbox({ saved = [], persist, deliver, completed }) {
+export function createOutbox({ saved = [], persist, deliver, completed, snapshot = () => null, restore = () => {} }) {
   const queue = [...saved]
   let running = false
   async function flush() {
@@ -15,12 +15,14 @@ export function createOutbox({ saved = [], persist, deliver, completed }) {
         }
         // Persist removal before reporting success. On a disk failure the stable
         // signed item remains retryable rather than silently losing completion.
+        const before = snapshot()
         queue.shift()
         try {
           if (item.completeTrade) completed()
           persist(queue)
         } catch (e) {
           queue.unshift(item)
+          restore(before)
           throw e
         }
       }
