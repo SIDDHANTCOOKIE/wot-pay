@@ -28,3 +28,12 @@ it('discovers outbox for identity reads without changing publish destinations', 
  await c.publish(ev([]));expect(pubs[0]).toEqual(['wss://board.example'])
  c.close();expect(closed[0]).toContain('wss://outbox.example/')
 })
+it('uses the viewers discovered relays for batched other-author metadata',async()=>{
+ const {createRelayClient}=await import('./relays.js');const queries=[]
+ const c=createRelayClient({pool:{querySync:async(urls,f)=>{queries.push({urls,f});return f.kinds[0]===10002?[ev([['r','wss://viewer-outbox.example']])]:[]},close:()=>{}}})
+ const authors=['ab'.repeat(32),'cd'.repeat(32)]
+ await c.queryIdentity({kinds:[0],authors},{discover:true,relayOwner:pk})
+ expect(queries[0].f.authors).toEqual([pk])
+ expect(queries[1].f.authors).toEqual(authors)
+ for(const url of ['wss://viewer-outbox.example/','wss://purplepag.es','wss://nostr-01.yakihonne.com'])expect(queries[1].urls).toContain(url)
+})
