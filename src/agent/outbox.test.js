@@ -27,3 +27,10 @@ describe('durable ordered outbox', () => {
     expect(saved).toEqual([])
   })
 })
+it('restores trade state and queue together if completion persistence fails',async()=>{
+ let active={id:'trade'},calls=0
+ const box=createOutbox({persist:()=>{if(++calls===2)throw Error('disk full')},deliver:async()=>{},completed:()=>{active=null},snapshot:()=>structuredClone(active),restore:x=>{active=x}})
+ await expect(box.add([{id:'stamp',completeTrade:true}])).rejects.toThrow('disk full')
+ expect(active).toEqual({id:'trade'});expect(box.queue).toHaveLength(1)
+ await box.flush();expect(active).toBeNull();expect(box.queue).toEqual([])
+})
