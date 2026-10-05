@@ -108,7 +108,7 @@ function OfferRow({ o, board, me, onOpen, active }) {
       </div>
       <div className="row">
         <span className="dim">
-          <Name pubkey={o.pubkey} names={board.names} you={me} /> · {o.payee || o.vpa} · {ago(o.created_at)}
+          <Name pubkey={o.pubkey} names={board.names} profiles={board.profiles} you={me} /> · {o.payee || o.vpa} · {ago(o.created_at)}
         </span>
       </div>
       <div className="row start">
@@ -191,7 +191,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       <div className="card trust-card">
         <Orbit trust={trust} pubkey={offer.pubkey} size={92} />
         <div className="trust-copy">
-          <Name pubkey={offer.pubkey} names={board.names} you={me} />
+          <Name pubkey={offer.pubkey} names={board.names} profiles={board.profiles} you={me} />
           <div className="where">{where(trust)}</div>
           <div className="rec">
             {trust.settles || 0} settled · {trust.disputes || 0} disputed
