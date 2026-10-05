@@ -5,6 +5,8 @@ export function profilePicture(input) {
   try {
     const url = new URL(input)
     if (url.protocol !== 'https:' || url.username || url.password) return ''
+    const host = url.hostname.toLowerCase()
+    if (!host.includes('.') || host.endsWith('.local') || host.endsWith('.localhost') || host.endsWith('.internal') || host.includes(':') || /^[\d.]+$/.test(host)) return ''
     return url.href
   } catch { return '' }
 }
@@ -27,5 +29,26 @@ export function readProfiles(events, authors, now = Math.floor(Date.now() / 1000
       out[pubkey] = { name: candidate?.trim() || '', picture: profilePicture(data.picture) }
     } catch { out[pubkey] = { name: '', picture: '' } }
   }
+  return out
+}
+
+// Bound identity reads even for large follow lists. Missing metadata keeps the npub.
+export const PROFILE_LIMIT = 500
+export const PROFILE_CHUNK = 100
+export async function loadProfiles(client, authors, { owner, maxAuthors = PROFILE_LIMIT } = {}) {
+  const wanted = [...new Set(authors)].filter(pk => typeof pk === 'string' && /^[0-9a-f]{64}$/.test(pk)).slice(0, Math.min(PROFILE_LIMIT, Math.max(0, maxAuthors)))
+  const batches = []
+  for (let i = 0; i < wanted.length; i += PROFILE_CHUNK) batches.push(wanted.slice(i, i + PROFILE_CHUNK))
+  const out = {}
+  async function worker() {
+    while (batches.length) {
+      const batch = batches.shift()
+      try {
+        const events = await client.queryIdentity({ kinds: [0], authors: batch }, { discover: true, relayOwner: owner, maxWait: 3000 })
+        Object.assign(out, readProfiles(events, batch))
+      } catch { /* a failed relay query must not hide the follow list */ }
+    }
+  }
+  await Promise.all([worker(), worker()])
   return out
 }
