@@ -1,10 +1,16 @@
-import { useEffect, useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import RelayStatus from './RelayStatus.jsx'
 import { tradeState } from '../trade.js'
 import { Copy, Name, rupees, sats, ago } from './ui.jsx'
 import * as nip19 from 'nostr-tools/nip19'
 
 // Your key, how the board sees you, and every trade you touched.
 export default function ProfileScreen({ board, signer, onClose, children }) {
+  const [showRelays, setShowRelays] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  async function refresh() { setRefreshing(true); try { await board.refreshIdentity() } finally { setRefreshing(false) } }
+  const relayButton = useRef(null)
+  useEffect(() => { if (!showRelays) relayButton.current?.focus() }, [showRelays])
   const sheet = useRef(null)
   const titleId = useId()
   useEffect(() => {
@@ -53,6 +59,7 @@ export default function ProfileScreen({ board, signer, onClose, children }) {
 
   const settledCount = trades.filter(({ s }) => s.status === 'settled').length
 
+  if (showRelays) return <RelayStatus states={board.relayStates} signer={signer} onClose={() => setShowRelays(false)} />
   return (
     <div className="sheet-bg" onClick={onClose}>
       <div ref={sheet} className="sheet tall" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} onClick={(e) => e.stopPropagation()}>
@@ -98,6 +105,8 @@ export default function ProfileScreen({ board, signer, onClose, children }) {
           </div>
         ))}
 
+        <button ref={relayButton} className="btn ghost" onClick={() => setShowRelays(true)}>Relay connections · {board.relaysUp ?? "…"}/{board.total}</button>
+        <button className="btn ghost" disabled={refreshing} onClick={refresh}>{refreshing ? "Refreshing…" : "Refresh profile and follows"}</button>
         {children}
       </div>
     </div>
