@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { claim as claimEvent, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
 import { tokenIssues } from '../dm.js'
@@ -120,6 +120,8 @@ function OfferRow({ o, board, me, onOpen, active }) {
 }
 
 function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
+  const [clock, setClock] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => { const timer = setInterval(() => setClock(Math.floor(Date.now() / 1000)), 1000); return () => clearInterval(timer) }, [])
   const me = signer?.pubkey
   const state = tradeState(offer, board.events, { trustedClaimers: board.ranker.hops })
   const mineClaim = state.claims.find((c) => c.pubkey === me)
@@ -148,13 +150,13 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
   }
 
   const received = board.cash.forOffer(offer.id, offer.pubkey)
-  const expired = state.status === 'expired'
+  const expired = state.status === 'expired' || (offer.expiresAt && offer.expiresAt <= clock)
   const canClaim =
-    state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
+    !expired && state.status === 'open' && !claimPending && (how === 'cashu' ? board.cash.supported : ln.includes('@'))
 
   const doClaim = async () => {
     if (!signer) { onRequireIdentity?.(); return }
-    if (busy || claimPending || state.status !== 'open' || mineClaim) return
+    if (busy || claimPending || state.status !== 'open' || mineClaim || (offer.expiresAt && offer.expiresAt <= Math.floor(Date.now() / 1000))) return
     setClaimPending(true)
     prefs.setReceive(how)
     let receive = { method: 'cashu', mint: offer.mint }
