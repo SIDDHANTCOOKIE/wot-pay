@@ -120,3 +120,25 @@ it('ignores claims at or after offer expiration while keeping earlier claims', (
  expect(tradeState(o,[claim('later',T,11)]).claim).toBeNull()
  expect(tradeState(o,[claim('early',T,9)]).claim.id).toBe('early')
 })
+
+describe('rate bids', () => {
+  const offerWithSats = { ...offer, sats: 1000 }
+  const accept = (claimId, created_at) => ({ type: 'accept', id: 'a' + claimId, pubkey: M, offerId: 'o', claimId, counterparty: T, created_at })
+  it('falls back to the offer ask when the claim has no bid', () => {
+    const c = claim('c1', T, 2)
+    const s = tradeState(offerWithSats, [c, accept('c1', 3)])
+    expect(s.agreedSats).toBe(1000)
+  })
+  it('the accepted claim bid becomes the agreed rate', () => {
+    const c = { ...claim('c1', T, 2), sats: 900 }
+    const s = tradeState(offerWithSats, [c, accept('c1', 3)])
+    expect(s.agreedSats).toBe(900)
+  })
+  it('a bid on an unaccepted claim does not change the ask', () => {
+    const c = { ...claim('c1', T, 2), sats: 900 }
+    const s = tradeState(offerWithSats, [c])
+    expect(s.status).toBe('open')
+    expect(s.agreedSats).toBe(900) // leading claim's bid, visible to maker; binding only on accept
+    expect(s.accepted).toBe(false)
+  })
+})
