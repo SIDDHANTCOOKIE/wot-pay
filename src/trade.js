@@ -12,7 +12,8 @@ export function tradeState(offer, events, { trustedClaimers } = {}) {
         e.type === 'claim' &&
         e.maker === offer.pubkey &&
         e.pubkey !== offer.pubkey &&
-        e.created_at >= offer.created_at,
+        e.created_at >= offer.created_at &&
+        (!offer.expiresAt || e.created_at < offer.expiresAt),
     )
     .filter(eligible)
     // Same-second claims are ordered by id so every device agrees on who leads.
@@ -54,7 +55,7 @@ export function tradeState(offer, events, { trustedClaimers } = {}) {
   if (makerStamp || takerStamp) status = 'stamped'
   if (makerStamp?.type === 'settled' && takerStamp?.type === 'settled') status = 'settled'
   if (makerStamp?.type === 'disputed' || takerStamp?.type === 'disputed') status = 'disputed'
-  if (status === 'open' && offer.expiresAt && offer.expiresAt < Math.floor(Date.now() / 1000))
+  if (status === 'open' && offer.expiresAt && offer.expiresAt <= Math.floor(Date.now() / 1000))
     status = 'expired'
 
   return { status, claims, claim, makerStamp, takerStamp }
