@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { toHexPubkey, npubShort } from './identity.js'
+import { Name } from './ui.jsx'
+import { loadProfiles } from './profiles.js'
 import { latestFollow, mergeFollows } from '../follows.js'
 export default function TrustManager({ board, signer, onChanged }) {
   const [list, setList] = useState(null),
@@ -8,6 +10,7 @@ export default function TrustManager({ board, signer, onChanged }) {
     [error, setError] = useState(''),
     [pending, setPending] = useState(null),
     [busy, setBusy] = useState(false)
+  const [profiles, setProfiles] = useState({})
   async function load() {
     setLoaded(false)
     setError('')
@@ -55,6 +58,14 @@ export default function TrustManager({ board, signer, onChanged }) {
       (list?.tags || []).filter((t) => t[0] === 'p' && /^[0-9a-f]{64}$/.test(t[1])).map((t) => t[1]),
     ),
   ]
+  const peopleKey = people.join(',')
+  useEffect(() => {
+    let live = true
+    loadProfiles(board.client, people, { owner: signer.pubkey }).then(out => {
+      if (live) setProfiles(out)
+    }).catch(() => {})
+    return () => { live = false }
+  }, [board.client, signer.pubkey, peopleKey, list?.id])
   return (
     <>
       <h2>People I follow / trust</h2>
@@ -72,10 +83,11 @@ export default function TrustManager({ board, signer, onChanged }) {
         </p>
       )}
       {people.map((pk) => (
-        <div className="row" key={pk}>
-          <span className="mono">{npubShort(pk)}</span>
+        <div className="row follow-person" key={pk}>
+          <Name pubkey={pk} profiles={{ ...board.profiles, ...profiles }} showNpub />
           <button
             className="btn small ghost"
+            aria-label={`Remove ${profiles[pk]?.name || npubShort(pk)}`}
             disabled={busy}
             onClick={() => setPending({ add: [], remove: [pk] })}
           >
