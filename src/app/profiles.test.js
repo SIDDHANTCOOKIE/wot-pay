@@ -21,11 +21,25 @@ describe('profile metadata', () => {
     expect(readProfiles([null, {}, { kind: 0, pubkey, tags: null }, event({ name: 'valid' })], [pubkey], 10)[pubkey].name).toBe('valid')
   })
   it('rejects unsafe picture URLs and credentials', () => {
-    for (const url of ['javascript:alert(1)', 'http://example.com/a', 'data:image/png;base64,xyz', 'https://u:p@example.com/a', 'bad']) expect(profilePicture(url)).toBe('')
+    for (const url of ['javascript:alert(1)', 'http://example.com/a', 'data:image/png;base64,xyz', 'https://u:p@example.com/a', 'bad', 'https://localhost/a', 'https://127.0.0.1/a', 'https://x.internal/a']) expect(profilePicture(url)).toBe('')
   })
 })
 
 it('rejects oversized profile content before parsing',()=>{
  const oversized=event({name:'x'.repeat(16001)})
  expect(readProfiles([oversized],[pubkey],10)).toEqual({})
+})
+
+it('chunks and caps metadata reads with at most two concurrent queries', async () => {
+ const {loadProfiles}=await import('./profiles.js')
+ const authors=Array.from({length:650},(_,i)=>i.toString(16).padStart(64,'0'))
+ let active=0, max=0;const calls=[]
+ const client={queryIdentity:async(f,options)=>{active++;max=Math.max(max,active);calls.push({f,options});await new Promise(r=>setTimeout(r,1));active--;return []}}
+ expect(await loadProfiles(client,[...authors,authors[0],'invalid'],{owner:pubkey})).toEqual({})
+ expect(calls).toHaveLength(5);expect(max).toBe(2)
+ expect(calls.every(({f,options})=>f.authors.length<=100&&options.relayOwner===pubkey&&options.maxWait===3000)).toBe(true)
+})
+it('metadata failures leave the npub fallback available',async()=>{
+ const {loadProfiles}=await import('./profiles.js')
+ expect(await loadProfiles({queryIdentity:async()=>{throw Error('offline')}},[pubkey])).toEqual({})
 })
