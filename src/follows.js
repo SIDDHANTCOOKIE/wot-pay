@@ -22,7 +22,8 @@ export function mergeFollows(existing, owner, additions = [], removals = []) {
 export function latestFollow(lists, owner) {
   return (
     lists
-      .filter((e) => e.kind === 3 && e.pubkey === owner)
-      .sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id))[0] || null
+      .filter((e) => e?.kind === 3 && e.pubkey === owner && Number.isSafeInteger(e.created_at) && Array.isArray(e.tags) && typeof e.id === 'string')
+      .filter(e => e.created_at <= Math.floor(Date.now() / 1000) + 60)
+      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0] || null
   )
 }
