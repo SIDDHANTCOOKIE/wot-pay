@@ -383,3 +383,16 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .app:not(:has(.tabs)) .install-toast {
   position: static; transform: none; width: 100%; margin: 12px 0;
 }
+
+.identity-entry { padding-top: 52px; gap: 16px; }
+.identity-brand { font: 32px var(--display); margin-bottom: 18px; }
+.identity-entry h1 { font-size: clamp(32px, 8vw, 42px); line-height: 1.1; }
+.identity-entry .lede { margin: 0 0 12px; }
+.identity-entry .fine { text-align: left; }
+.identity-options { border: 1px solid var(--line-2); border-radius: 14px; padding: 14px; }
+.identity-options summary { cursor: pointer; font-size: 14px; }
+.identity-options[open] { display: flex; flex-direction: column; }
+.identity-options[open] > :not(summary) { margin-top: 12px; }
+.identity-options input { width: 100%; min-width: 0; }
+.identity-options .btn { width: 100%; }
+.identity-guest { align-self: flex-start; background: none; border: 0; padding: 8px 0; color: var(--dim); cursor: pointer; }
