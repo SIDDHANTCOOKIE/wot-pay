@@ -10,6 +10,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
   })
   vi.stubGlobal('window', {})
 })
@@ -136,5 +137,31 @@ describe('extension integrity', () => {
     await expect(signer.sign({ kind: 1, created_at: 1, tags: [], content: 'intended' })).rejects.toThrow(
       'identity changed',
     )
+  })
+})
+
+
+describe('sign out', () => {
+  it('stays signed out across restore without replacing the backed-up device identity', async () => {
+    const { signOut, restoreSigner, saveSignerChoice } = await import('./identity.js')
+    const original = localSigner().pubkey
+    const key = values.get('wot-pay:sk')
+    signOut()
+    expect(await restoreSigner()).toBeNull()
+    expect(await restoreSigner()).toBeNull()
+    expect(values.get('wot-pay:sk')).toBe(key)
+    saveSignerChoice('local')
+    expect((await restoreSigner()).pubkey).toBe(original)
+  })
+  it('removes remote session credentials without calling the extension or creating a key', async () => {
+    const { signOut, restoreSigner, saveSignerChoice } = await import('./identity.js')
+    window.nostr = { getPublicKey: vi.fn() }
+    values.set('wot-pay:bunker-session', 'remote credentials')
+    saveSignerChoice('bunker')
+    signOut()
+    expect(values.has('wot-pay:bunker-session')).toBe(false)
+    expect(await restoreSigner()).toBeNull()
+    expect(values.has('wot-pay:sk')).toBe(false)
+    expect(window.nostr.getPublicKey).not.toHaveBeenCalled()
   })
 })
