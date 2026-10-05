@@ -113,3 +113,10 @@ describe('viewer graph claim admission', () => {
     expect(tradeState(offer, [c, { ...stamp('settled', M, 'c2', 3), counterparty: T }], policy).status).toBe('open')
   })
 })
+
+it('ignores claims at or after offer expiration while keeping earlier claims', () => {
+ const o={...offer,expiresAt:10}
+ expect(tradeState(o,[claim('late',T,10)]).claim).toBeNull()
+ expect(tradeState(o,[claim('later',T,11)]).claim).toBeNull()
+ expect(tradeState(o,[claim('early',T,9)]).claim.id).toBe('early')
+})
