@@ -354,3 +354,20 @@ main { padding-bottom: 120px; }
   color: var(--accent);
   font: 400 32px/1 var(--display);
 }
+
+.install-toast {
+  position: fixed; z-index: 50; bottom: calc(90px + env(safe-area-inset-bottom));
+  left: 50%; transform: translateX(-50%); width: min(444px, calc(100% - 36px));
+  background: var(--card-2); border: 1px solid var(--line-2); border-radius: 18px;
+  padding: 16px; box-shadow: 0 12px 36px #000a; display: flex; flex-direction: column; gap: 8px;
+}
+.install-toast p { color: var(--dim); font-size: 13px; margin: 0; }
+
+.install-inline { margin: 12px 0; }
+.install-link, .install-dismiss { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 4px 0; font-size: 13px; }
+.install-link { color: var(--accent); }
+.install-inline .fine { text-align: left; margin-top: 6px; }
+.install-toast .row { flex-wrap: nowrap; }
+.app:not(:has(.tabs)) .install-toast {
+  position: static; transform: none; width: 100%; margin: 12px 0;
+}
