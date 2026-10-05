@@ -13,10 +13,10 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
     urls.forEach(url => reading.add(normalizeURL(url)))
     return pool.querySync(urls, filter, { maxWait })
   }
-  async function queryIdentity(filter, { discover = false, refresh = false, maxWait = 4000 } = {}) {
+  async function queryIdentity(filter, { discover = false, refresh = false, relayOwner = null, maxWait = 4000 } = {}) {
     const base = [...new Set([...relays, ...IDENTITY_RELAYS])]
     let extra = []
-    const owner = filter.authors?.length === 1 ? filter.authors[0] : null
+    const owner = relayOwner || (filter.authors?.length === 1 ? filter.authors[0] : null)
     if (discover && owner) {
       if (refresh) discovered.delete(owner)
       if (!discovered.has(owner)) discovered.set(owner,
