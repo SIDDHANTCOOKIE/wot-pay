@@ -107,9 +107,8 @@ export function createBrain({
   }
 
   function onOwnerMessage(raw) {
-    const cmd = (String(raw)
-      .toLowerCase()
-      .match(/[a-z]+/) || [''])[0]
+    const cmd = String(raw).trim().toLowerCase().replace(/[.!]$/, '')
+    if (!['pause','resume','status','paid','skip','got','no'].includes(cmd)) return [{ type: 'dm', text: 'Use one exact command: paid, skip, got, no, status, pause or resume. No trade state changed.' }]
     const a = state.active
     const reply = (text) => [{ type: 'dm', text }]
 
@@ -186,6 +185,7 @@ export function createBrain({
     claimFailed,
     state,
     snapshot: () => ({ paused: state.paused, active: state.active, tried: [...state.tried] }),
+    restore: (snapshot) => { state.paused = snapshot.paused; state.active = snapshot.active; state.tried = new Set(snapshot.tried) },
     completed: () => {
       state.active = null
     },
