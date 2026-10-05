@@ -156,7 +156,7 @@ function Confirm({ draft, signer, board, onBack, onPosted }) {
 }
 
 function Live({ board, signer, offer, onDone }) {
-  const state = tradeState(offer, board.events)
+  const state = tradeState(offer, board.events, { trustedClaimers: board.ranker.hops })
   const { claim, makerStamp, status } = state
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

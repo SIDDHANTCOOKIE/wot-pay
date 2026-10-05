@@ -91,3 +91,25 @@ describe('claim release', () => {
     expect(tradeState(offer, [a, b, { ...release, pubkey: U }]).claim.id).toBe('a')
   })
 })
+
+describe('viewer graph claim admission', () => {
+  const policy = { trustedClaimers: new Set([M, T]) }
+  it('outsider claim and dispute cannot remove an offer from open state', () => {
+    const c = claim('c2', U, 2)
+    expect(tradeState(offer, [c, stamp('disputed', U, 'c2', 3)], policy).status).toBe('open')
+  })
+  it('an outsider cannot get ahead of an in-graph claim', () => {
+    expect(tradeState(offer, [claim('c2', U, 2), claim('c1', T, 3)], policy).claim.pubkey).toBe(T)
+  })
+  it('maker can explicitly select an outsider with a bound stamp', () => {
+    const c = claim('c2', U, 2)
+    const s = tradeState(offer, [c, stamp('settled', M, 'c2', 3)], policy)
+    expect(s.claim.pubkey).toBe(U)
+    expect(s.status).toBe('stamped')
+  })
+  it('backdated or wrong-counterparty maker stamps do not admit an outsider', () => {
+    const c = claim('c2', U, 2)
+    expect(tradeState(offer, [c, stamp('settled', M, 'c2', 1)], policy).status).toBe('open')
+    expect(tradeState(offer, [c, { ...stamp('settled', M, 'c2', 3), counterparty: T }], policy).status).toBe('open')
+  })
+})

@@ -46,10 +46,10 @@ export default function ProfileScreen({ board, signer, onClose, children }) {
   const trades = useMemo(() => {
     const offers = board.events.filter((e) => e.type === 'offer')
     return offers
-      .map((o) => ({ o, s: tradeState(o, board.events) }))
+      .map((o) => ({ o, s: tradeState(o, board.events, { trustedClaimers: board.ranker.hops }) }))
       .filter(({ o, s }) => o.pubkey === me || s.claims.some((c) => c.pubkey === me))
       .sort((a, b) => b.o.created_at - a.o.created_at)
-  }, [board.events, me])
+  }, [board.events, board.ranker, me])
 
   const settledCount = trades.filter(({ s }) => s.status === 'settled').length
 

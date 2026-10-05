@@ -1,8 +1,11 @@
 // Fold the events for one offer into its current state.
 // events: parsed offer/claim/settled/disputed (see events.parse).
 
-export function tradeState(offer, events) {
+export function tradeState(offer, events, { trustedClaimers } = {}) {
   const related = events.filter((e) => e.offerId === offer.id)
+  const eligible = (c) => !trustedClaimers || trustedClaimers.has(c.pubkey) || related.some((s) =>
+    isStamp(s) && s.pubkey === offer.pubkey && s.claimId === c.id &&
+    s.counterparty === c.pubkey && s.created_at >= c.created_at)
   const claims = related
     .filter(
       (e) =>
@@ -11,6 +14,7 @@ export function tradeState(offer, events) {
         e.pubkey !== offer.pubkey &&
         e.created_at >= offer.created_at,
     )
+    .filter(eligible)
     // Same-second claims are ordered by id so every device agrees on who leads.
     .filter(
       (c) =>
@@ -29,8 +33,9 @@ export function tradeState(offer, events) {
     related.filter(
       (e) =>
         isStamp(e) &&
+        e.created_at >= offer.created_at &&
         e.pubkey === offer.pubkey &&
-        claims.some((c) => c.id === e.claimId && c.pubkey === e.counterparty),
+        claims.some((c) => c.id === e.claimId && c.pubkey === e.counterparty && e.created_at >= c.created_at),
     ),
   )
   const claim = (makerStamp?.claimId && claims.find((c) => c.id === makerStamp.claimId)) || claims[0] || null
@@ -39,7 +44,7 @@ export function tradeState(offer, events) {
     ? latest(
         related.filter(
           (e) =>
-            isStamp(e) && e.pubkey === taker && e.claimId === claim.id && e.counterparty === offer.pubkey,
+            isStamp(e) && e.created_at >= claim.created_at && e.pubkey === taker && e.claimId === claim.id && e.counterparty === offer.pubkey,
         ),
       )
     : undefined
