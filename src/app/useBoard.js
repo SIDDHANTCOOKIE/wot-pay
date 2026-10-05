@@ -13,6 +13,9 @@ export function useBoard(trustRoot, me, revision = 0) {
   const [events, setEvents] = useState(() => new Map())
   const [trust, setTrust] = useState({ followLists: [], stamps: [], loading: true })
   const [profiles, setProfiles] = useState({})
+  const [identityRevision, setIdentityRevision] = useState(0)
+  revision += identityRevision
+  const [profileRetry, setProfileRetry] = useState(0)
   const asked = useRef(new Set())
 
   useEffect(() => {
@@ -40,12 +43,20 @@ export function useBoard(trustRoot, me, revision = 0) {
     if (!trustRoot) return
     let live = true
     setTrust((t) => ({ ...t, loading: true }))
-    loadTrustData((f) => client.query(f), trustRoot).then((d) => live && setTrust({ ...d, loading: false }))
+    loadTrustData((f) => f.kinds?.includes(3) ? client.queryIdentity(f, { discover: f.authors?.length === 1 && f.authors[0] === trustRoot, refresh: revision > 0 }) : client.query(f), trustRoot).then((d) => live && setTrust({ ...d, loading: false }))
     return () => {
       live = false
     }
   }, [client, trustRoot, revision])
 
+  useEffect(() => {
+    if (!me) return
+    const retry = () => { asked.current.delete(me); setProfileRetry(n => n + 1) }
+    if (revision) retry()
+    const timer = setTimeout(retry, 15000)
+    window.addEventListener('online', retry)
+    return () => { clearTimeout(timer); window.removeEventListener('online', retry) }
+  }, [me, revision])
   // Fetch kind-0 profile metadata for authors we haven't looked up yet.
   useEffect(() => {
     const want = [...new Set([me, ...[...events.values()].map((e) => e.pubkey)].filter(Boolean))].filter(
@@ -53,11 +64,13 @@ export function useBoard(trustRoot, me, revision = 0) {
     )
     if (!want.length) return
     want.forEach((pk) => asked.current.add(pk))
-    client.query({ kinds: [0], authors: want }).then((list) => {
+    const groupsToQuery = [want.filter(pk => pk !== me), want.filter(pk => pk === me)].filter(group => group.length)
+    Promise.all(groupsToQuery.map(authors => client.queryIdentity({ kinds: [0], authors }, { discover: authors.length === 1 && authors[0] === me }))).then((groups) => {
+      const list = groups.flat()
       const out = readProfiles(list, want)
       setProfiles((p) => ({ ...p, ...out }))
     }).catch(() => {})
-  }, [client, events, me])
+  }, [client, events, me, profileRetry, revision])
 
   const names = useMemo(() => Object.fromEntries(Object.entries(profiles).map(([pk, p]) => [pk, p.name])), [profiles])
 
@@ -73,10 +86,13 @@ export function useBoard(trustRoot, me, revision = 0) {
     [trustRoot, me, trust, all],
   )
 
+  useEffect(() => () => client.close(), [client])
+
   // Relay reachability, so an empty board never hides a dead connection.
+  const [relayStates, setRelayStates] = useState(() => client.relayStatus())
   const [relaysUp, setRelaysUp] = useState(null)
   useEffect(() => {
-    const tick = () => setRelaysUp(navigator.onLine === false ? 0 : client.connected())
+    const tick = () => { setRelaysUp(navigator.onLine === false ? 0 : client.connected()); setRelayStates(client.relayStatus()) }
     const id = setInterval(tick, 3000)
     const first = setTimeout(tick, 1500)
     return () => {
@@ -105,12 +121,14 @@ export function useBoard(trustRoot, me, revision = 0) {
 
   return {
     client,
+    refreshIdentity: async () => { asked.current.delete(me); setIdentityRevision(n => n + 1) },
     events: all,
     ranker,
     names,
     profiles,
     publish,
     relaysUp,
+    relayStates,
     total: client.relays.length,
     trustLoading: trust.loading,
   }
