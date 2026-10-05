@@ -75,6 +75,7 @@ export function tallyStamps(stamps, dist, events = []) {
       (s.pubkey === claim.pubkey && s.counterparty === offer.pubkey)
     ))
       continue
+    if (events.some(e => e.type === 'cancel' && e.claimId === claim.id && e.offerId === offer.id && e.pubkey === claim.pubkey && e.created_at >= claim.created_at)) continue
     if (s.created_at < claim.created_at || claim.created_at < offer.created_at) continue
     if (s.pubkey === s.counterparty) continue
     if (!dist.has(s.pubkey)) continue // author outside the graph: ignored
@@ -169,6 +170,10 @@ export async function loadTrustData(query, viewer, { depth = 2, maxAuthors = 100
     try {
       trades.push(...(await query({ ids: ids.slice(i, i + CHUNK), kinds: [KIND.OFFER, KIND.CLAIM] })))
     } catch {}
+  }
+  const claimIds = [...new Set(trades.filter(e => e.kind === KIND.CLAIM).map(e => e.id))]
+  for (let i=0;i<claimIds.length;i+=CHUNK) {
+    try { trades.push(...await query({kinds:[KIND.CANCEL], '#e':claimIds.slice(i,i+CHUNK)})) } catch {}
   }
   return { followLists, stamps, trades }
 }
