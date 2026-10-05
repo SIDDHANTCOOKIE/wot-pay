@@ -135,3 +135,30 @@ describe('receipt participation proof', () => {
   it('does not count receipts dated before the claim', () =>
     expect(check([{ ...receipt, created_at: 0 }]).settles).toBe(0))
 })
+
+describe('bounded reputation', () => {
+  it('200 repeated pair receipts cannot outrank a direct follow', () => {
+    const stamps = Array.from({ length: 200 }, (_, i) => stamp('settled', B, C, `repeat-${i}`, 100 + i))
+    const r = ranker({ viewer: V, followLists: graph, stamps })
+    expect(r.explain(C).settles).toBe(1.5)
+    expect(r.explain(C).score).toBeLessThan(r.explain(A).score)
+  })
+  it('20 repeated disputes cannot drive a direct follow below a quarter of its base', () => {
+    const stamps = Array.from({ length: 20 }, (_, i) => stamp('disputed', B, A, `dispute-${i}`, 100 + i))
+    const r = ranker({ viewer: V, followLists: graph, stamps })
+    expect(r.explain(A).disputes).toBe(1)
+    expect(r.explain(A).score).toBe(0.25)
+  })
+  it('limits aggregate receipt weight even when many graph members collaborate', () => {
+    const keys = Array.from({ length: 10 }, (_, i) => `friend-${i}`)
+    const stamps = keys.map((k, i) => stamp('settled', k, C, `many-${i}`))
+    const r = ranker({ viewer: V, followLists: [...graph, follows(V, [A, ...keys], 2)], stamps })
+    expect(r.explain(C).settles).toBe(3)
+    expect(r.explain(C).score).toBeCloseTo(0.6)
+  })
+  it('pair selection is independent of arrival order', () => {
+    const stamps = Array.from({ length: 10 }, (_, i) => stamp(i % 2 ? 'settled' : 'disputed', B, C, `order-${i}`, 100 + i))
+    const args = { viewer: V, followLists: graph }
+    expect(ranker({ ...args, stamps }).explain(C)).toEqual(ranker({ ...args, stamps: [...stamps].reverse() }).explain(C))
+  })
+})
