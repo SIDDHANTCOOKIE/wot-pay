@@ -110,7 +110,7 @@ export default function App() {
       )}
 
       <main>
-        <InstallHint />
+        <InstallHint hidden={showSettings} />
         {guest && <div className="card"><h2>Guest demo mode</h2><p className="dim">Read-only demo: the board shows public offers. Trust ranking uses follow lists and trade claims, not payment proof. With no trust graph selected, offers are unranked; strangers may not send sats.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
         {tab === 'pay' ? (
           <PayScreen board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
