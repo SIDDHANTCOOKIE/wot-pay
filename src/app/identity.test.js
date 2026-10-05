@@ -115,6 +115,7 @@ describe('local login and persisted signer selection', () => {
     await expect(restoreSigner()).rejects.toThrow('unavailable')
     window.nostr = { getPublicKey: async () => pubkey, signEvent: vi.fn() }
     expect((await restoreSigner()).kind).toBe('extension')
+    localSigner() // existing saved device key is required; selection alone must not create one
     saveSignerChoice('local')
     expect((await restoreSigner()).kind).toBe('local')
   })
@@ -163,5 +164,26 @@ describe('sign out', () => {
     expect(await restoreSigner()).toBeNull()
     expect(values.has('wot-pay:sk')).toBe(false)
     expect(window.nostr.getPublicKey).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('identity choice without automatic keys', () => {
+  it('does not create a key on fresh load or exporting without a key', async () => {
+    const { restoreSigner, exportLocalKey } = await import('./identity.js')
+    expect(await restoreSigner()).toBeNull()
+    expect(() => exportLocalKey()).toThrow('No device key')
+    expect(values.size).toBe(0)
+  })
+  it('creates a device identity only on explicit choice and preserves it on reload', async () => {
+    const { createLocalIdentity, restoreSigner } = await import('./identity.js')
+    const first = createLocalIdentity()
+    expect((await restoreSigner()).pubkey).toBe(first.pubkey)
+    expect(() => createLocalIdentity()).toThrow('already exists')
+  })
+  it('keeps legacy users with a stored key but no signer preference', async () => {
+    const { restoreSigner } = await import('./identity.js')
+    const first = localSigner()
+    expect((await restoreSigner()).pubkey).toBe(first.pubkey)
   })
 })
