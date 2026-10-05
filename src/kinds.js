@@ -4,6 +4,7 @@ export const KIND = {
   CLAIM: 3402,
   SETTLED: 3403,
   DISPUTED: 3404,
+  ACCEPT: 3405, // Maker accepts one exact claim before payment.
   CANCEL: 5, // NIP-09 claim deletion request
 }
 
