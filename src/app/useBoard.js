@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRelayClient } from '../relays.js'
+import { connectivity } from '../offline.js'
 import { parse } from '../events.js'
 import { createRanker, loadTrustData } from '../wot.js'
 import { loadProfiles } from './profiles.js'
@@ -18,8 +19,8 @@ export function useBoard(trustRoot, me, revision = 0) {
   const [profileRetry, setProfileRetry] = useState(0)
   const asked = useRef(new Set())
 
+  const boardSub = useRef(null)
   useEffect(() => {
-    const since = Math.floor(Date.now() / 1000) - DAY
     const linked = location.hash.match(/^#offer\/([0-9a-f]{64})$/)?.[1]
     if (linked)
       Promise.all([client.query({ ids: [linked] }), client.query({ '#e': [linked] })])
@@ -31,12 +32,17 @@ export function useBoard(trustRoot, me, revision = 0) {
           }
         })
         .catch(() => {})
-    const stop = client.subscribe({ since }, (ev) => {
-      const p = parse(ev)
-      if (!p) return
-      setEvents((prev) => (prev.has(p.id) ? prev : new Map(prev).set(p.id, p)))
-    })
-    return stop
+    const start = () => {
+      boardSub.current?.()
+      const since = Math.floor(Date.now() / 1000) - DAY
+      boardSub.current = client.subscribe({ since }, (ev) => {
+        const p = parse(ev)
+        if (!p) return
+        setEvents((prev) => (prev.has(p.id) ? prev : new Map(prev).set(p.id, p)))
+      })
+    }
+    start()
+    return () => boardSub.current?.()
   }, [client])
 
   useEffect(() => {
@@ -90,8 +96,24 @@ export function useBoard(trustRoot, me, revision = 0) {
   // Relay reachability, so an empty board never hides a dead connection.
   const [relayStates, setRelayStates] = useState(() => client.relayStatus())
   const [relaysUp, setRelaysUp] = useState(null)
+  const downSince = useRef(null)
   useEffect(() => {
-    const tick = () => { setRelaysUp(navigator.onLine === false ? 0 : client.connected()); setRelayStates(client.relayStatus()) }
+    const tick = () => {
+      const c = connectivity({ connected: navigator.onLine === false ? 0 : client.connected(), online: navigator.onLine !== false, downSince: downSince.current })
+      downSince.current = c.downSince
+      setRelaysUp(c.relaysUp)
+      setRelayStates(client.relayStatus())
+      if (c.resubscribe) {
+        boardSub.current?.()
+        const since = Math.floor(Date.now() / 1000) - DAY
+        boardSub.current = client.subscribe({ since }, (ev) => {
+          const p = parse(ev)
+          if (!p) return
+          setEvents((prev) => (prev.has(p.id) ? prev : new Map(prev).set(p.id, p)))
+        })
+        downSince.current = Date.now()
+      }
+    }
     const id = setInterval(tick, 3000)
     const first = setTimeout(tick, 1500)
     return () => {
