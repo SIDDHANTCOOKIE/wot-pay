@@ -22,7 +22,7 @@ const follows = (who, pks) =>
 const ranker = (stamps = []) =>
   createRanker({
     viewer: owner.pk,
-    followLists: [follows(owner, [friend.pk]), follows(friend, [far.pk])],
+    followLists: [follows(owner, [friend.pk, rival.pk]), follows(friend, [far.pk])],
     stamps,
   })
 
@@ -217,5 +217,15 @@ describe('unpaid maker assertion', () => {
     brain.onBoard({ events: [o, mine, s], ranker: ranker(), now })
     expect(brain.onOwnerMessage('got')[0].type).toBe('dm')
     expect(brain.state.active).not.toBeNull()
+  })
+})
+
+
+describe('outsider claim protection', () => {
+  it('ignores an outsider reservation and can still find the open offer', () => {
+    const o = mkOffer(friend)
+    const outsider = key()
+    const c = ev(claim({ offerId: o.id, maker: friend.pk }), outsider)
+    expect(rejectReason(o, { ranker: ranker(), events: [o, c], me: agent.pk, owner: owner.pk, policy: DEFAULT_POLICY, now })).toBeNull()
   })
 })
