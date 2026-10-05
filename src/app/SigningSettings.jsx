@@ -6,6 +6,7 @@ import {
   extensionSigner,
   connectBunker,
   saveSignerChoice,
+  hasLocalKey,
 } from './identity.js'
 
 export default function SigningSettings({ signer, onSigner, onSignOut }) {
@@ -93,7 +94,7 @@ export default function SigningSettings({ signer, onSigner, onSignOut }) {
       >
         Import nsec locally
       </button>
-      <button className="btn ghost" disabled={busy} onClick={download}>
+      <button className="btn ghost" disabled={busy || !hasLocalKey()} onClick={download}>
         Export device key
       </button>
       <button
@@ -111,7 +112,7 @@ export default function SigningSettings({ signer, onSigner, onSignOut }) {
       </button>
       <button
         className="btn ghost"
-        disabled={busy}
+        disabled={busy || !hasLocalKey()}
         onClick={() =>
           change(() => {
             saveSignerChoice('local')

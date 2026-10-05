@@ -7,11 +7,14 @@ import BoardScreen from './BoardScreen.jsx'
 import ProfileScreen from './ProfileScreen.jsx'
 import SigningSettings from './SigningSettings.jsx'
 import TrustManager from './TrustManager.jsx'
+import IdentityChoice from './IdentityChoice.jsx'
+import InstallHint from './InstallHint.jsx'
 
 export default function App() {
   const [signer, setSigner] = useState(null)
   const [signerError, setSignerError] = useState('')
   const [restoring, setRestoring] = useState(true)
+  const [guest, setGuest] = useState(false)
   useEffect(() => {
     let live = true,
       current
@@ -34,6 +37,7 @@ export default function App() {
   function chooseSigner(next) {
     signer?.close?.()
     setSigner(next)
+    setGuest(false)
     setSignerError('')
     setActiveId(null)
     setShowSettings(false)
@@ -43,6 +47,7 @@ export default function App() {
     signOut()
     signer?.close?.()
     setSigner(null)
+    setGuest(false)
     setSignerError('')
     setActiveId(null)
     setShowSettings(false)
@@ -53,11 +58,14 @@ export default function App() {
   const [activeId, setActiveId] = useState(() => sessionStorage.getItem('wot-pay:active'))
   const [trustInput, setTrustInput] = useState(prefs.trustNpub())
   const [showSettings, setShowSettings] = useState(false)
-  const trustRoot = toHexPubkey(prefs.trustNpub()) || signer?.pubkey
+  const trustRoot = signer ? toHexPubkey(prefs.trustNpub()) || signer.pubkey : undefined
   const [trustRevision, setTrustRevision] = useState(0)
   const live = useBoard(trustRoot, signer?.pubkey, trustRevision)
   const cash = useTokens(live.client, signer)
-  const board = { ...live, cash }
+  const board = { ...live, cash, publish: async (event) => {
+    if (!signer) throw new Error('Choose a signing identity before publishing.')
+    return live.publish(event)
+  } }
 
   useEffect(() => {
     if (!location.hash.startsWith('#offer/') || tab !== 'board') location.hash = tab
@@ -70,16 +78,13 @@ export default function App() {
 
   const usingOwnGraph = trustRoot === signer?.pubkey
 
-  if (!signer)
-    return (
-      <div className="app">
-      <main className="screen">
-        <h1>Nostr sign-in</h1>
-        <p role="status">{signerError || (restoring ? 'Restoring your signer…' : 'Signed out. Choose a signer to continue.')}</p>
-        {!restoring && <SigningSettings signer={null} onSigner={chooseSigner} />}
-      </main>
-      </div>
-    )
+  function requireIdentity() { setGuest(false); setShowSettings(false) }
+  if (!signer && !guest)
+    return <div className="app"><main className="screen">
+      {restoring ? <p role="status">Restoring your signer…</p> :
+        <IdentityChoice error={signerError} onSigner={chooseSigner} onGuest={() => { setGuest(true); setTab('board') }} />}
+      <InstallHint />
+    </main></div>
 
   return (
     <div className="app">
@@ -87,32 +92,34 @@ export default function App() {
         <div className="brand">
           wot<span>·</span>pay
         </div>
-        <button className="who" onClick={() => setShowSettings(true)}>
+        <button className="who" onClick={() => signer ? setShowSettings(true) : requireIdentity()}>
           <span
             className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
             title={`${board.relaysUp ?? '…'}/${board.total} relays`}
           />
-          {npubShort(signer.pubkey)}
+          {signer ? npubShort(signer.pubkey) : 'Guest · choose identity'}
         </button>
       </header>
 
-      {usingOwnGraph && !showSettings && (
+      {signer && usingOwnGraph && !showSettings && (
         <button className="nudge" onClick={() => setShowSettings(true)}>
-          Add your npub so the board knows who you trust
+          Choose a public npub for trust ranking (not sign-in)
           <span className="go">→</span>
         </button>
       )}
 
       <main>
+        <InstallHint />
+        {guest && <div className="card"><h2>Guest demo mode</h2><p className="dim">Read-only demo: the board shows public offers. Trust ranking uses follow lists and trade claims, not payment proof. With no trust graph selected, offers are unranked; strangers may not send sats.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
         {tab === 'pay' ? (
           <PayScreen board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
         ) : (
-          <BoardScreen board={board} signer={signer} />
+          <BoardScreen board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
       </main>
 
       <nav className="tabs">
-        <button className={tab === 'pay' ? 'on' : ''} onClick={() => setTab('pay')}>
+        <button className={tab === 'pay' ? 'on' : ''} onClick={() => signer ? setTab('pay') : requireIdentity()}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
             <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11M4.5 8h7" />
           </svg>
@@ -128,7 +135,7 @@ export default function App() {
         </button>
       </nav>
 
-      {showSettings && (
+      {showSettings && signer && (
         <ProfileScreen board={board} signer={signer} onClose={() => setShowSettings(false)}>
           <h2>Your web of trust</h2>
           <p className="dim">
