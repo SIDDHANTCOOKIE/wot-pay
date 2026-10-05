@@ -18,7 +18,7 @@ export default function InstallHint() {
     finally { setPrompt(null) }
   }
   return <div className="card">
-    <button className="btn ghost" onClick={install}>{prompt ? 'Install wot-pay' : 'How to install wot-pay'}</button>
+    <button className="btn ghost" onClick={install}>Install app</button>
     {help && <p className="dim">Open this site in a regular browser, not private mode. Android Chrome: menu → Install app or Add to Home screen. iPhone Safari: Share → Add to Home Screen, then Open as Web App. The browser decides when an install prompt is available. Installing does not make trading work offline.</p>}
   </div>
 }
