@@ -122,6 +122,12 @@ describe('receipt participation proof', () => {
   }
   const check = (stamps, events = [offer, claim]) =>
     createRanker({ viewer: V, followLists: graph, stamps, events }).explain(B)
+  it('ignores released-claim receipts, but not forged releases',()=>{
+    const cancel={type:'cancel',offerId:offer.id,claimId:claim.id,pubkey:B,created_at:4}
+    expect(check([receipt],[offer,claim,cancel]).settles).toBe(0)
+    expect(check([receipt],[offer,claim,{...cancel,pubkey:C}]).settles).toBe(1)
+    expect(check([receipt],[offer,claim,{...cancel,created_at:1}]).settles).toBe(1)
+  })
   it('counts a real participant receipt', () => expect(check([receipt]).settles).toBe(1))
   it('drops nonexistent offer and claim receipts', () => {
     expect(check([receipt], []).settles).toBe(0)
