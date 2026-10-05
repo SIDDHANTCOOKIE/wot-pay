@@ -10,6 +10,7 @@ const X = pk('e') // outside the graph
 
 const follows = (author, list, created_at = 1) => ({
   kind: 3,
+  id: `${author}:${created_at}:${list.join(",")}`,
   pubkey: author,
   created_at,
   tags: list.map((p) => ['p', p]),
@@ -161,4 +162,9 @@ describe('bounded reputation', () => {
     const args = { viewer: V, followLists: graph }
     expect(ranker({ ...args, stamps }).explain(C)).toEqual(ranker({ ...args, stamps: [...stamps].reverse() }).explain(C))
   })
+})
+it('graph and editor agree on equal-time lists independent of arrival order',()=>{
+ const a={...follows(V,[A]),id:'a'},b={...follows(V,[B]),id:'b'}
+ expect([...buildGraph([a,b]).get(V)]).toEqual([A]);expect([...buildGraph([b,a]).get(V)]).toEqual([A])
+ expect(buildGraph([null,{...a,created_at:Math.floor(Date.now()/1000)+61}]).size).toBe(0)
 })
