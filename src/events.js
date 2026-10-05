@@ -122,7 +122,7 @@ export function offer({ vpa, payee, inr, sats, mint, receive, note, ttl = 3600 }
   )
 }
 
-export function claim({ offerId, maker, mint, receive, note }) {
+export function claim({ offerId, maker, mint, receive, note, sats }) {
   text(note, 'note')
   return template(
     KIND.CLAIM,
@@ -130,7 +130,12 @@ export function claim({ offerId, maker, mint, receive, note }) {
       ['e', checkId(offerId, 'offerId'), '', 'root'],
       ['p', checkId(maker, 'maker')],
     ],
-    strip({ mint: checkMint(mint), receive: checkReceive(receive), note: note || undefined }),
+    strip({
+      mint: checkMint(mint),
+      receive: checkReceive(receive),
+      note: note || undefined,
+      sats: sats === undefined ? undefined : positiveInt(sats, 'sats'),
+    }),
   )
 }
 
@@ -228,6 +233,7 @@ export function parse(ev) {
         mint: checkMint(body.mint),
         receive: checkReceive(body.receive),
         note,
+        sats: body.sats === undefined ? undefined : positiveInt(body.sats, 'sats'),
       }
     const claimTag = tag('e', 'reply'),
       claimId = claimTag === undefined ? undefined : checkId(claimTag, 'claimId')

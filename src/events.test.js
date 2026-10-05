@@ -109,3 +109,13 @@ it('rejects far-future events and accepts only bounded clock skew', () => {
   expect(parse(sign({...t,created_at:now+61}))).toBeNull()
   expect([sign(t),sign(t)].map(parse).filter(Boolean)).toHaveLength(2)
 })
+
+it('claims can carry an optional whole-sats bid and reject bad bids', () => {
+  const c = claim({ offerId: ID, maker: pk, receive: { method: 'cashu' }, sats: 950 })
+  expect(parse(sign(c)).sats).toBe(950)
+  expect(parse(sign(claim({ offerId: ID, maker: pk }))).sats).toBeUndefined()
+  for (const bad of [0, -5, 1.5, NaN]) expect(() => claim({ offerId: ID, maker: pk, sats: bad })).toThrow()
+  const tampered = sign(claim({ offerId: ID, maker: pk, sats: 900 }))
+  tampered.content = JSON.stringify({ v: 1, sats: 'lots' })
+  expect(parse(tampered)).toBeNull()
+})
