@@ -8,7 +8,7 @@ import {
   saveSignerChoice,
 } from './identity.js'
 
-export default function SigningSettings({ signer, onSigner }) {
+export default function SigningSettings({ signer, onSigner, onSignOut }) {
   const [secret, setSecret] = useState(''),
     [bunker, setBunker] = useState('')
   const [busy, setBusy] = useState(false),
@@ -56,7 +56,21 @@ export default function SigningSettings({ signer, onSigner }) {
         Import stays on this browser, in plaintext storage. Never paste a primary wallet key. Changing signer
         changes your trading identity.
       </p>
+      {signer && onSignOut && (
+        <>
+          <button className="btn ghost" disabled={busy} onClick={onSignOut}>
+            Sign out
+          </button>
+          <p className="fine">
+            Sign out stops using this identity here. Your device key stays in this browser so you can
+            return with "Use device key". Export it before clearing browser data, or you will lose
+            access to this identity and its private DMs. Posted offers and claims stay on relays;
+            signing out does not cancel them or settle a trade. A remote signer must be connected again.
+          </p>
+        </>
+      )}
       <input
+        className="input"
         type="password"
         aria-label="Import nsec"
         placeholder="nsec1… (device only)"
@@ -108,6 +122,7 @@ export default function SigningSettings({ signer, onSigner }) {
         Use device key
       </button>
       <input
+        className="input"
         type="password"
         aria-label="Bunker connection"
         placeholder="bunker://…"
