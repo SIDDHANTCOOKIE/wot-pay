@@ -1,3 +1,4 @@
+import TradeOutcome from './TradeOutcome.jsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { readToken, tokenIssues } from '../dm.js'
 import { offer as offerEvent, settled, disputed } from '../events.js'
@@ -5,7 +6,7 @@ import { tradeState } from '../trade.js'
 import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
 import { prefs } from './identity.js'
-import Orbit, { where, SettleMark } from './Orbit.jsx'
+import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
@@ -191,6 +192,7 @@ function Live({ board, signer, offer, onDone }) {
           to {offer.payee || offer.vpa} · {sats(offer.sats)} back
         </div>
         <MintChip mint={offer.mint} />
+        {offer.note && <p className="offer-note">{offer.note}</p>}
       </div>
 
       {status === 'open' && (
@@ -244,15 +246,7 @@ function Live({ board, signer, offer, onDone }) {
       )}
 
       {makerStamp && (
-        <div className={`card done ${makerStamp.type}`}>
-          <SettleMark ok={makerStamp.type === 'settled'} />
-          <div className="hero-word">
-            {makerStamp.type === 'settled'
-              ? state.status === 'settled'
-                ? 'Settled.'
-                : 'You stamped settled.'
-              : 'Disputed.'}
-          </div>
+        <TradeOutcome state={state} ownStamp={makerStamp}>
           <div className="dim">
             {state.takerStamp
               ? `They stamped ${state.takerStamp.type} too.`
@@ -261,7 +255,7 @@ function Live({ board, signer, offer, onDone }) {
           <button className="btn primary" onClick={onDone}>
             Pay another QR
           </button>
-        </div>
+        </TradeOutcome>
       )}
     </section>
   )
