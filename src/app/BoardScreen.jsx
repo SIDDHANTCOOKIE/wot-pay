@@ -1,4 +1,5 @@
 import ExampleOffer from './ExampleOffer.jsx'
+import MarketplacePanel from './MarketplacePanel.jsx'
 import TradeOutcome from './TradeOutcome.jsx'
 import { useEffect, useMemo, useState } from 'react'
 import { claim as claimEvent, settled, disputed } from '../events.js'
@@ -10,7 +11,7 @@ import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
-export default function BoardScreen({ board, signer, onRequireIdentity, initialOfferId }) {
+export default function BoardScreen({ board, signer, onRequireIdentity, initialOfferId, market }) {
   const [sort, setSort] = useState('recommended')
   const [relationship, setRelationship] = useState('all')
   const [maxInr, setMaxInr] = useState('')
@@ -74,7 +75,9 @@ export default function BoardScreen({ board, signer, onRequireIdentity, initialO
       <p className="lede">{signer ? 'Pay someone’s UPI request and receive their agreed sats.' : 'Browse offers freely. Choose an identity when you want to trade.'}</p>
 
       <ExampleOffer />
-      <p className="dim">Existing offers are legacy trades with public payment details and no escrow. Protected listings are coming next.</p>
+      {market&&<MarketplacePanel market={market} signer={signer} board={board} onRequireIdentity={onRequireIdentity}/>}
+      <details className="legacy-board"><summary>Older public offers · {open.length} open</summary>
+      <p className="dim">These legacy trades have public payment details and no escrow.</p>
       <div className="board-filters">
         <label className="field">Sort offers<select value={sort} onChange={e => setSort(e.target.value)}><option value="recommended">Recommended</option><option value="rate">Highest sats per ₹ earned</option><option value="newest">Newest</option></select></label>
         <details><summary>Filter offers</summary>
@@ -116,6 +119,7 @@ export default function BoardScreen({ board, signer, onRequireIdentity, initialO
       {open.map((o) => (
         <OfferRow key={o.id} o={o} board={board} me={me} onOpen={setOpenId} />
       ))}
+      </details>
     </section>
   )
 }

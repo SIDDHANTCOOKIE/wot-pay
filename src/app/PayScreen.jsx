@@ -9,7 +9,7 @@ import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Maker: scan a QR, post it, watch for a claim, send sats, stamp.
-export default function PayScreen({ board, signer, activeId, setActiveId }) {
+export default function PayScreen({ board, signer, activeId, setActiveId, market, onRequireIdentity }) {
   const [draft, setDraft] = useState(null)
   const mine = activeId && board.events.find((e) => e.id === activeId && e.type === 'offer' && e.pubkey === signer?.pubkey)
 
@@ -17,6 +17,7 @@ export default function PayScreen({ board, signer, activeId, setActiveId }) {
   if (draft)
     return (
       <QuotePreview
+        market={market} signer={signer} board={board} onRequireIdentity={onRequireIdentity}
         draft={draft}
         onBack={() => setDraft(null)}
       />

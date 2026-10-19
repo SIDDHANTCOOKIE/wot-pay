@@ -20,24 +20,20 @@ UPI and sats don't share a payment rail. I built a Nostr client that lets someon
 
 This is a hackathon prototype for signed payment coordination. It does not verify payments or guarantee settlement.
 
-## Client-side marketplace migration (draft)
+## Client-side protected marketplace
 
-This branch starts the agreed marketplace migration. It is **not a real-money escrow release**.
+This branch implements private quotes, payer advertisements, immutable agreements and a Cashu escrow adapter. **Real mint operations default to disabled** until deployment configuration and provider integration checks pass. No custom backend is introduced.
 
-- Browse first, with Pay a QR / Earn sats / My trades navigation.
-- A dismissible, browser-remembered example offer, restored through How it works.
-- Camera scanning is opt-in; typing a UPI ID and choosing a QR image also work.
-- New QR requests are private browser previews. Publishing new public VPA offers is disabled while protected matching is built.
-- Exact-decimal fixed or market-linked price previews, unrestricted premiums/discounts and a separate 1% requester service fee rounded up to whole sats. No fee is collected on this branch.
-- Existing trades remain accessible as **Legacy trade — no escrow**. Conflicting acceptances block payment instructions; cancellation cannot erase an accepted obligation. Token checks use the accepted bid.
-- IndexedDB public history and an outbox persist exact signed event IDs. My trades retries unconfirmed delivery without re-signing. Storage failure blocks outgoing publication.
-- Recovery settings create an encrypted snapshot and downloadable recovery kit. Optionally enter three independent Blossom hosts and verify/repair the same encrypted bytes through authenticated uploads and full hash-checked readback.
+- Browse first; Pay a QR / Earn sats / My trades. Dismissible example, opt-in camera, image and manual UPI entry. Older public offers are collapsed separately.
+- Fixed or market-linked prices, unrestricted premiums and discounts, trust/history ranking and mint filters. Both people accept exact amounts before funding.
+- Signed private messages inside Nostr gift wraps; public advertisements exclude VPA, payee and QR details. Private agreements and operation journals are encrypted in IndexedDB.
+- Permanent requester/payer/arbitrator 2-of-3 Cashu locks with SIG_ALL output binding, DLEQ validation, release/refund/mutual split, exact-request retries, recipient payout verification and collection for an external Cashu wallet.
+- A separate 1% requester fee, rounded up, locked to the configured fee recipient and bound to the agreement. Manual fee-refund request and operator case export.
+- Three-host encrypted Blossom backups, two verified copies before consuming operations, two verified relay pointers for discovery, automatic repair while open, and recovery from an older downloaded kit.
 
-Recovery is currently a **manual snapshot** of public history, pending public events and the local device identity. It does not back up legacy token DMs, remote signer secrets or an escrow wallet (none exists yet). The kit includes its recovery secret: protect it like a private key. Replication tests use simulated servers; production provider compatibility and retention remain unverified. There is no custom backend or background worker repairing copies while the app is closed.
+Copy [.env.example](.env.example) to .env to configure public arbitrator and fee-recipient keys. Keep mint operations disabled until the [release gates and limitations](docs/client-marketplace-v1.md) are addressed. Tests use an in-process mint and storage fixtures, not real funds. Public Nostr history is not proof of a UPI payment. Reviewed reputation penalties and production operator processes remain release work.
 
-The app no longer penalizes legacy complaint statements as if they were reviewed misconduct. These remain visible; independently reviewed reputation outcomes are not implemented yet. Existing signed completion history is still self-reported and vulnerable to collusion.
-
-See [implementation status and release gates](docs/client-marketplace-v1.md) for the accepted decisions, what is implemented, and what must be completed before enabling protected trading.
+A device identity is currently required for private trade signing and storage. The local identity key remains in browser storage; encryption does not protect against a compromised browser or same-origin script. The recovery kit contains its secret and must be protected like a private key. External signers can browse; their private escrow integration is not implemented.
 
 ## Legacy flow (existing offers only)
 

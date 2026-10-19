@@ -1,5 +1,6 @@
 import MyTrades from './MyTrades.jsx'
 import RecoverySettings from './RecoverySettings.jsx'
+import { useMarketplace } from './useMarketplace.js'
 import { useEffect, useState } from 'react'
 import { toHexPubkey, prefs, restoreSigner, signOut } from './identity.js'
 import { useBoard } from './useBoard.js'
@@ -65,6 +66,7 @@ export default function App() {
   const trustRoot = signer ? toHexPubkey(prefs.trustNpub()) || signer.pubkey : undefined
   const [trustRevision, setTrustRevision] = useState(0)
   const live = useBoard(trustRoot, signer?.pubkey, trustRevision)
+  const market = useMarketplace(live.client, signer)
   const cash = useTokens(live.client, signer)
   const board = { ...live, cash, publish: async (event) => {
     if (!signer) throw new Error('Choose a signing identity before publishing.')
@@ -107,11 +109,11 @@ export default function App() {
       <main>
         {board.historyError && <p className="hint warn" role="status">{board.historyError}</p>}
         <InstallHint hidden={showSettings} />
-        {guest && <div className="card"><h2>Browsing as guest</h2><p className="dim">These are real public offers, not demo data. Trust ranking uses follow lists and trade claims, not payment proof. With no trust graph selected, offers are unranked; strangers may not send sats.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
-        {tab === 'trades' ? <MyTrades board={board} signer={signer} onRequireIdentity={requireIdentity} onOpen={offer => { if (offer.pubkey === signer.pubkey) { setActiveId(offer.id); setTab('pay') } else { setBoardOfferId(offer.id); setTab('board') } }} /> : tab === 'pay' ? (
-          <PayScreen board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
+        {guest && <div className="card"><p>Browse first. Choose an identity when you’re ready to trade.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
+        {tab === 'trades' ? <MyTrades market={market} board={board} signer={signer} onRequireIdentity={requireIdentity} onOpen={offer => { if (offer.pubkey === signer.pubkey) { setActiveId(offer.id); setTab('pay') } else { setBoardOfferId(offer.id); setTab('board') } }} /> : tab === 'pay' ? (
+          <PayScreen market={market} onRequireIdentity={requireIdentity} board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
         ) : (
-          <BoardScreen key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
+          <BoardScreen market={market} key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
       </main>
 
@@ -160,7 +162,7 @@ export default function App() {
           </button>
           </details>
           <SigningSettings signer={signer} onSigner={chooseSigner} onSignOut={leaveIdentity} />
-          <RecoverySettings signer={signer} onSigner={chooseSigner} />
+          <RecoverySettings market={market} signer={signer} onSigner={chooseSigner} />
           <TrustManager board={board} signer={signer} onChanged={() => setTrustRevision((r) => r + 1)} />
         </ProfileScreen>
       )}

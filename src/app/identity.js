@@ -2,6 +2,8 @@ import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'nos
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import * as nip19 from 'nostr-tools/nip19'
 import { wrapToken, openToken } from '../dm.js'
+import { wrapPrivate, openPrivate } from '../marketplace/private.js'
+import { encryptBackup, decryptBackup, digest } from '../recovery.js'
 
 const SK = 'wot-pay:sk'
 const TRUST = 'wot-pay:trust-npub'
@@ -18,12 +20,17 @@ export function localSigner() {
     localStorage.setItem(SK, hex)
   }
   const sk = hexToBytes(hex)
+  const vaultKey = digest(new TextEncoder().encode(`wot-pay:vault:v1:${hex}`))
   return {
     kind: 'local',
     pubkey: getPublicKey(sk),
     sign: async (t) => finalizeEvent(t, sk),
     wrapToken: (to, token, offerId) => wrapToken({ sk, to, token, offerId }),
     openToken: (w) => openToken(w, sk),
+    wrapPrivate: (to, signed) => wrapPrivate(sk, to, signed),
+    openPrivate: w => openPrivate(sk, w),
+    sealLocal: async value => new TextDecoder().decode(await encryptBackup(value, await vaultKey)),
+    openLocal: async sealed => decryptBackup(new TextEncoder().encode(sealed), await vaultKey),
   }
 }
 

@@ -36,6 +36,20 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
     if (ok === 0) throw new Error('no relay accepted the event')
     return { ok, total: relays.length }
   }
+  async function publishTo(urls, signed) {
+    assertNoToken(signed)
+    if (!urls.length || urls.some(url => new URL(url).protocol !== 'wss:')) throw new Error('Secure destination relays are required.')
+    urls.forEach(url => reading.add(normalizeURL(url)))
+    const results = await Promise.allSettled(pool.publish(urls, signed))
+    const ok = results.filter(result => result.status === 'fulfilled').length
+    if (!ok) throw new Error('Private delivery unconfirmed. Retry the saved message.')
+    return { ok, total: urls.length }
+  }
+  function subscribePrivate(urls, pubkey, onEvent) {
+    urls.forEach(url => reading.add(normalizeURL(url)))
+    const sub = pool.subscribeMany(urls, { kinds: [GIFT_WRAP], '#p': [pubkey] }, { onevent: onEvent })
+    return () => sub.close()
+  }
 
   // filter: extra NIP-01 filter fields (authors, since, #e ...). Defaults to all four kinds.
   function subscribe(filter, onEvent, { onEose } = {}) {
@@ -75,5 +89,6 @@ export function createRelayClient({ relays = DEFAULT_RELAYS, pool = new SimplePo
   const relayStatus = () => [...reading].map(url => ({ url, connected: !!pool.listConnectionStatus?.().get(normalizeURL(url)), write: relays.map(normalizeURL).includes(url), read: true }))
   const close = () => pool.close([...reading])
 
-  return { publish, subscribe, query, queryIdentity, relayStatus, sendWrapped, subscribeWrapped, connected, close, relays }
+  const queryOn=(urls,filter)=>identityQuery(urls,filter,4000)
+  return { publish, publishTo, queryOn, subscribePrivate, subscribe, query, queryIdentity, relayStatus, sendWrapped, subscribeWrapped, connected, close, relays }
 }

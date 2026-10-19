@@ -408,8 +408,19 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .price-breakdown dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .price-breakdown dd { margin: 0; text-align: right; }
 .example-offer { border-style: dashed; }
+.example-offer h2 { font-size: 18px; line-height: 1.4; letter-spacing: 0; text-transform: none; color: var(--text); margin: 0; }
 .how-it-works { margin: 12px 0; }
 summary { cursor: pointer; min-height: 32px; }
 select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; width: 100%; }
 .tabs > button { min-height: 52px; flex: 1; }
+.marketplace-panel { display: grid; gap: 14px; margin: 24px 0; }
+.marketplace-panel .actions { align-items: end; flex-wrap: wrap; }
+.marketplace-panel .actions > .field { flex: 1; min-width: 150px; }
+.private-trade { display: grid; gap: 14px; }
+.private-trade .mono { overflow-wrap: anywhere; }
+.private-trade textarea { width: 100%; min-height: 88px; padding: 12px; box-sizing: border-box; font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line-2); border-radius: 10px; }
+.private-trade .btn { margin: 6px 6px 6px 0; }
+.agreement-terms { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+.agreement-terms dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.legacy-board { margin: 24px 0; }
 button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
