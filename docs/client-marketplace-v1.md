@@ -37,3 +37,5 @@ Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects wit
 Run `npm ci`, `npm test` and `npm run build`. On restricted Windows installations, set TEMP and TMP to a writable workspace `.tmp` directory before Vitest.
 
 Tests exercise real Cashu blind signatures and DLEQ in an in-process mint, single-signature rejection, exact request replay, recipient output binding, immutable signing fingerprints, release/refund/split, fee binding, payout verification/collection, encrypted message isolation, IndexedDB conflicts, and remote recovery with a Blossom host unavailable. They reject stale/wrong-operation/same-host backup receipts and missing recovery-index readback. They do not substitute for the provider and device checks above.
+
+Production mint check: run npm run check:mint -- https://your-mint.example. The adapter now requires NUT-19 caching specifically for POST /v1/swap with ttl:null. Finite retention needs arbitrary-output restoration support before it is safe for permanent escrow. Recovery refuses to fall back past a newer signed backup pointer when its blob is unavailable, because doing so could lose a previously sent signature.

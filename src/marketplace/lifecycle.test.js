@@ -91,3 +91,20 @@ it('rejects an arbitrator-imposed split and detects a different payout using the
   const two=await signResolution(t.agreement,funded.send,one,t.keys.arbitrator.secret)
   await expect(completeResolution(wallet,t.agreement,funded.send,two,r.backup)).rejects.toThrow('both participants')
 })
+
+it('does not recover an older signing journal when a newer signed backup pointer exists',async()=>{
+  const t=await testTrade(),r=await recovery(t)
+  await r.backup({kind:'before-signature'})
+  const older=(await r.client.queryIdentity())[0]
+  await r.vault.write('signature-lock',{fingerprint:'already-authorized-output'})
+  await r.backup({kind:'after-signature'})
+  const all=await r.client.queryIdentity(),newer=all.find(e=>e.id!==older.id)
+  const pointers=[]
+  for(const [event,time] of [[older,Date.now()-1000],[newer,Date.now()]]) {
+    const pointer=await r.signer.openLocal(event.content)
+    pointers.push(await r.signer.sign({kind:1,created_at:event.created_at,tags:event.tags,content:await r.signer.sealLocal({...pointer,createdAt:time})}))
+    if(event.id===newer.id)for(const server of pointer.servers)r.blobs.delete(`${server}/${pointer.hash}`)
+  }
+  r.client.queryIdentity=async()=>pointers
+  await expect(findRemoteSnapshots(r.client,r.signer,r.secret,r.fetcher)).rejects.toThrow('newest recovery snapshot')
+})

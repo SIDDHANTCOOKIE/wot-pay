@@ -1,6 +1,7 @@
 import { Wallet, OutputData, SigAll, serializeSwapPreview, deserializeSwapPreview, getPubKeyFromPrivKey, createRandomSecretKey, hasValidDleq, meetsSignerThreshold } from '@cashu/cashu-ts'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { canonical, contentHash, validateAgreement } from './protocol.js'
+import { assertSwapRecoveryPolicy } from './mint-policy.js'
 
 const amount = n => typeof n?.toNumber === 'function' ? n.toNumber() : Number(n)
 const total = proofs => proofs.reduce((n,p) => n + BigInt(amount(p.amount)), 0n)
@@ -34,6 +35,7 @@ export async function connectMint(agreement, wallet = new Wallet(agreement.mint)
   validateAgreement(agreement)
   await wallet.loadMint()
   for (const nut of [7, 11, 12, 19]) if (!wallet.getMintInfo().isSupported(nut).supported) throw new Error(`Mint must support NUT-${nut} for recoverable escrow.`)
+  assertSwapRecoveryPolicy(wallet.getMintInfo().isSupported(19).params)
   if (wallet.unit !== 'sat') throw new Error('Mint wallet must use sats.')
   return wallet
 }

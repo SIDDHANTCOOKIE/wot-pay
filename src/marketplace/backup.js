@@ -54,9 +54,12 @@ export async function findRemoteSnapshots(client,signer,secret,fetcher=fetch) {
     const pointer=await signer.openLocal(event.content)
     if(pointer.owner===signer.pubkey&&Number.isSafeInteger(pointer.createdAt)&&pointer.createdAt<=Date.now()+60000)pointers.push(pointer)
   }catch{}
-  for(const pointer of pointers.sort((a,b)=>b.createdAt-a.createdAt))try {
+  // An older backup may omit an already-issued signature. Never silently
+  // roll back the signing journal just because the newest blob is unavailable.
+  const newestTime=Math.max(...pointers.map(p=>p.createdAt))
+  for(const pointer of pointers.filter(p=>p.createdAt===newestTime))try {
     const snapshot=await recoverRemote({...pointer,secret,fetcher})
     if(snapshot.version===2&&snapshot.owner===signer.pubkey&&Array.isArray(snapshot.records))return snapshot
   }catch{}
-  throw new Error('No recoverable remote snapshot found. Your downloaded kit is still available.')
+  throw new Error('The newest recovery snapshot is unavailable or invalid. Restore access to its replicas before signing or funding; an older kit may omit operations already sent.')
 }

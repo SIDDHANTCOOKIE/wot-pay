@@ -10,7 +10,8 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "smoke": "node src/smoke.js",
-    "agent": "node src/agent/daemon.js"
+    "agent": "node src/agent/daemon.js",
+    "check:mint": "node scripts/check-mint.mjs"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^4.11.0",
