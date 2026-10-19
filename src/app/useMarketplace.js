@@ -125,7 +125,7 @@ export function useMarketplace(client, signer) {
     await deliverPrivate({client,signer,vault,to:listing.pubkey,signed});await reload()
   }
   async function propose(requestRow,payerSats,fundingFeeSats=0,releaseFeeSats=0) {
-    if(!config.ready)throw new Error('Configure the arbitrator panel and fee recipient before creating an agreement.')
+    if(!config.ready)throw new Error('Configure the arbitrator panel before creating an agreement.')
     requestRow=await vault.read(requestRow.id)
     if(requestRow.value.proposal) {await deliverPrivate({client,signer,vault,to:parsePrivate(requestRow.value.request).pubkey,signed:requestRow.value.proposal});return reload()}
     const request=parsePrivate(requestRow.value.request),listing=requestRow.value.listing
@@ -138,7 +138,7 @@ export function useMarketplace(client, signer) {
     const panel=config.panel.find(p=>![requester,payer].includes(p.pubkey))
     if(!panel)throw new Error('No independent arbitrator is configured.')
     const now=Math.floor(Date.now()/1000)
-    const agreement=validateAgreement({v:2,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,serviceFeeSats:feeBreakdown(payerSats).serviceFeeSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,feeRecipient:config.feeRecipient,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+300})
+    const agreement=validateAgreement({v:2,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,serviceFeeSats:feeBreakdown(payerSats).serviceFeeSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,feeRecipient:null,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+300})
     const id=await contentHash(agreement),signed=await signer.sign(privateTemplate(id,'proposal',{agreement,requestId:request.agreementId}))
     await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],evidence:{}})
     await vault.write(requestRow.id,{...requestRow.value,proposal:signed},requestRow.revision)
@@ -149,6 +149,7 @@ export function useMarketplace(client, signer) {
     const me=signer.pubkey
     if(![a.requester,a.payer].includes(me))throw new Error('Only participants can perform this action.')
     if(action==='accept'&&(clock>a.quoteExpiresAt||!inbox))throw new Error('Quote expired or private inbox is not ready.')
+    if(action==='accept'&&a.termsVersion!==TERMS_VERSION)throw new Error('Request a new quote with no platform fee before accepting.')
     if(action==='accept')assertDeploymentAgreement(config,a)
     if(action==='accept'&&me===a.payer) {
       for(const r of await vault.snapshot())if(r.value.kind==='trade'&&r.id!==row.id&&r.value.agreement.payer===me) {
@@ -189,7 +190,7 @@ export function useMarketplace(client, signer) {
     assertDeploymentAgreement(config,a)
     if(row.value.evidence.funding?.verified)throw new Error('Already funded. Retry pending messages instead of funding again.')
     if(!view.canFund&&!row.value.fundingOperation&&!row.value.feeOperation)throw new Error('Funding window closed or agreement unavailable.')
-    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const view=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...view,occupiesSlot:view.occupiesSlot||!!r.value.feeOperation&&!view.completed}}})
+    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const view=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...view,occupiesSlot:view.occupiesSlot||!!(r.value.feeOperation||r.value.fundingOperation)&&!view.completed}}})
     requireFreeSlot(a.payer,latestTrades,id)
     const wallet=await connectMint(a)
     const backup=operation=>backupOperation(vault,signer,operation,fetch,client)
@@ -197,6 +198,7 @@ export function useMarketplace(client, signer) {
     if(!acceptance)throw new Error('Your signed acceptance is missing.')
     await backup({kind:'acceptance',agreementId:id,event:acceptance})
     await deliverPrivate({client,signer,vault,to:a.payer,signed:acceptance})
+    if(a.serviceFeeSats>0) {
     if(!row.value.feeResult) {
       // Discover the collector before any fee proofs are consumed.
       if(!inboxRelays(await client.queryIdentity({kinds:[10050],authors:[a.feeRecipient]}),a.feeRecipient).length)throw new Error('Fee recipient inbox is not ready.')
@@ -211,12 +213,17 @@ export function useMarketplace(client, signer) {
     if(!row.value.feeEvent)row=await save(row,{feeEvent:await signer.sign(privateTemplate(id,'fee-payment',{agreement:a,proofs:row.value.feeResult.send}))})
     const feeEvent=row.value.feeEvent
     await deliverPrivate({client,signer,vault,to:a.feeRecipient,signed:feeEvent})
-    if(!row.value.fundingOperation)row=await save(row,{fundingOperation:await prepareFunding(wallet,a,row.value.feeResult.keep)})
+    }
+    if(!row.value.fundingOperation) {
+      let inputs=row.value.feeResult?.keep
+      if(a.serviceFeeSats===0) {const decoded=getDecodedToken(token);if(decoded.mint.replace(/\/$/,'')!==a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.');inputs=decoded.proofs}
+      row=await save(row,{fundingOperation:await prepareFunding(wallet,a,inputs)})
+    }
     // Fee-transfer plus funding costs share the agreed allowance.
-    if(Number(row.value.feeOperation.preview.fees)+Number(row.value.fundingOperation.preview.fees)>a.fundingFeeSats)throw new Error('Combined funding fees exceed the accepted allowance. Request a manual service-fee refund; do not re-fund.')
+    if(Number(row.value.feeOperation?.preview.fees||0)+Number(row.value.fundingOperation.preview.fees)>a.fundingFeeSats)throw new Error('Combined funding fees exceed the accepted allowance. Request a manual service-fee refund; do not re-fund.')
     const result=await completeFunding(wallet,a,row.value.fundingOperation,backup)
     row=await save(row,{proofs:result.send,change:result.keep,evidence:{...row.value.evidence,funding:result.funding,feeVerified:true}})
-    await sendTrade(row,'funding',{proofs:result.send,feeProofs:row.value.feeResult.send})
+    await sendTrade(row,'funding',{proofs:result.send,...(a.serviceFeeSats>0?{feeProofs:row.value.feeResult.send}:{})})
     await reload()
   }
   async function verifyIncomingFunding(row) {
@@ -226,7 +233,7 @@ export function useMarketplace(client, signer) {
     if(!message)throw new Error('No funding proof has arrived.')
     const wallet=await connectMint(a)
     const funding=await verifyFunding(wallet,a,message.payload.proofs)
-    await verifyFeeProofs(wallet,a,message.payload.feeProofs)
+    if(a.serviceFeeSats>0)await verifyFeeProofs(wallet,a,message.payload.feeProofs)
     await save(row,{proofs:message.payload.proofs,evidence:{...row.value.evidence,funding,feeVerified:true}});await reload()
   }
   async function proposeResolution(row,allocation) {

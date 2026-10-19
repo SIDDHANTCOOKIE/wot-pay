@@ -36,11 +36,11 @@ export default function QuotePreview({ draft, onBack, market, signer, board, onR
     <p className="dim">{reference && now - reference.at < 300000 ? `Reference: ${rupees(reference.inr)} / BTC. Refreshed every minute.` : 'Reference unavailable or stale. You can enter a fixed rate.'}</p>
     {quote ? <div className="card price-breakdown"><h2>Estimated cost</h2><dl>
       <dt>Payer receives</dt><dd>{sats(quote.payerSats)}</dd>
-      <dt>wot-pay fee · 1%</dt><dd>{sats(quote.serviceFeeSats)}</dd>
+      <dt>Platform fee</dt><dd>{sats(quote.serviceFeeSats)}</dd>
       <dt>Funding costs</dt><dd>Not yet quoted</dd>
       <dt>Subtotal</dt><dd>{sats(quote.totalSats)} + funding costs</dd>
-    </dl><p className="dim">The exact quote will lock when both people agree. The fee is separate from the payer’s earnings.</p></div> : <p role="status" className="hint">{error}</p>}
+    </dl><p className="dim">The exact quote will lock when both people agree. There is no mandatory platform fee.</p></div> : <p role="status" className="hint">{error}</p>}
     {market?<MarketplacePanel market={market} signer={signer} board={board} mode="pay" draft={{...draft,inr:Number(amount)}} onRequireIdentity={onRequireIdentity}/>:<div className="card"><h2>Protected trades are being prepared</h2><p>Private matching, mint verification and arbitration must be ready before you can fund a trade. No payment is requested here.</p><button className="btn primary wide" disabled>Choose a payer · coming soon</button></div>}
-    <details><summary>Service fee and refunds</summary><p>The official client’s fee is 1% of the accepted payer quote, rounded up to a whole sat, with no flat fee. Other clients can bypass it. Refunds are reviewed and sent manually.</p><p>Before the payer starts payment, cancellation, expiry or failed activation qualifies for a service-fee refund. Once payment starts, the reviewed dispute outcome determines any fee refund. Escrow recovery never depends on paying this fee.</p></details>
+    <details><summary>Optional support</summary><p>Trading has no mandatory platform fee. You can support wot-pay with a voluntary zap. Mint and network costs are quoted separately.</p></details>
   </section>
 }

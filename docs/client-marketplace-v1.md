@@ -1,3 +1,7 @@
+# Current revenue policy: voluntary support
+
+New trades have no mandatory platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. A donation recipient is optional and never a trading prerequisite. Mint/network costs still apply. Earlier signed fee-bearing agreements retain their original validation and recovery paths; new acceptance requires the current zero-fee terms. Fee collection descriptions below refer to those older agreements.
+
 # Private marketplace implementation and release gates
 
 Updated 20 October 2026. This branch implements a client-only protected-trade protocol and UI. It is not approved for production money. Nostr relays, Cashu mints and Blossom storage are external servers; there is no custom application backend.
@@ -18,9 +22,9 @@ Updated 20 October 2026. This branch implements a client-only protected-trade pr
 
 ## Configuration
 
-Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects with `name`, a 64-character Nostr public key (`pubkey`), and a 66-character compressed Cashu key (`escrowKey`). Set `VITE_FEE_RECIPIENT` to the fee desk's Nostr public key. Never put private keys in Vite configuration. Operators must enable their private inboxes.
+Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects with `name`, a 64-character Nostr public key (`pubkey`), and a 66-character compressed Cashu key (`escrowKey`). Set `VITE_SUPPORT_NPUB` to the public Nostr profile for optional support. `VITE_FEE_RECIPIENT` is only used to reconcile older fee-bearing agreements. Never put private keys in Vite configuration. Operators must enable their private inboxes.
 
-`VITE_PROTECTED_TRADES_ENABLED` defaults to false. Agreement creation requires valid panel and fee-recipient configuration; consuming mint calls additionally require the enable flag. Users configure three independently operated HTTPS Blossom origins, download a recovery kit, and acknowledge saving it outside the browser before accepting trades.
+`VITE_PROTECTED_TRADES_ENABLED` defaults to false. Agreement creation requires valid panel configuration; consuming mint calls additionally require the enable flag. Users configure three independently operated HTTPS Blossom origins, download a recovery kit, and acknowledge saving it outside the browser before accepting trades.
 
 ## Limits and remaining release work
 

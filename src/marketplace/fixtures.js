@@ -2,7 +2,7 @@
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { createEscrowKey } from './escrow.js'
 import { contentHash, privateTemplate } from './protocol.js'
-import { TERMS_VERSION } from './pricing.js'
+import { LEGACY_TERMS_VERSION as TERMS_VERSION } from './pricing.js'
 export async function testTrade() {
   const identities = Object.fromEntries(['requester','payer','arbitrator','fee'].map(role => { const sk = generateSecretKey(); return [role, { sk, pubkey: getPublicKey(sk) }] }))
   const keys = Object.fromEntries(['requester','payer','arbitrator'].map(role => [role, createEscrowKey()]))

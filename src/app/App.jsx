@@ -1,4 +1,5 @@
 import MyTrades from './MyTrades.jsx'
+import SupportZap from './SupportZap.jsx'
 import RecoverySettings from './RecoverySettings.jsx'
 import { useMarketplace } from './useMarketplace.js'
 import { useEffect, useState } from 'react'
@@ -115,6 +116,7 @@ export default function App() {
         ) : (
           <BoardScreen market={market} key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
+        <SupportZap />
       </main>
 
       <nav className="tabs">

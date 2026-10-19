@@ -1,3 +1,7 @@
+# Current revenue policy: voluntary support
+
+New trades have no mandatory platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. A donation recipient is optional and never a trading prerequisite. Mint/network costs still apply. Earlier signed fee-bearing agreements retain their original validation and recovery paths; new acceptance requires the current zero-fee terms. Fee collection descriptions below refer to those older agreements.
+
 <div align="center">
 
 <img src="docs/banner.svg" alt="wot-pay: signed coordination, explicit trust" width="100%" />

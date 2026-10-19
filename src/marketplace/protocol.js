@@ -1,5 +1,5 @@
 import { verifyEvent } from 'nostr-tools/pure'
-import { feeBreakdown, TERMS_VERSION } from './pricing.js'
+import { feeBreakdown, TERMS_VERSION, LEGACY_TERMS_VERSION } from './pricing.js'
 import { digest } from '../recovery.js'
 import { pointFromHex } from '@cashu/cashu-ts'
 
@@ -62,11 +62,12 @@ export function currentListings(events, now = Math.floor(Date.now() / 1000)) {
 
 export function validateAgreement(a) {
   if (!exact(a, ['v', 'termsVersion', 'nonce', 'listingId', 'requester', 'payer', 'arbitrator', 'escrowKeys', 'mint', 'paise', 'payerSats', 'serviceFeeSats', 'fundingFeeSats', 'releaseFeeSats', 'escrowSats', 'feeRecipient', 'destination', 'quoteExpiresAt', 'createdAt'])) fail('Unexpected agreement fields.')
-  if (a.v !== 2 || a.termsVersion !== TERMS_VERSION || !HEX.test(a.nonce) || !HEX.test(a.listingId) || ![a.requester, a.payer, a.arbitrator, a.feeRecipient].every(k => HEX.test(k)) || new Set([a.requester, a.payer, a.arbitrator]).size !== 3) fail('Agreement requires three distinct identities and a fee recipient.')
+  if (a.v !== 2 || ![TERMS_VERSION,LEGACY_TERMS_VERSION].includes(a.termsVersion) || !HEX.test(a.nonce) || !HEX.test(a.listingId) || ![a.requester, a.payer, a.arbitrator].every(k => HEX.test(k)) || new Set([a.requester, a.payer, a.arbitrator]).size !== 3) fail('Agreement requires three distinct identities.')
   if (!exact(a.escrowKeys, ['requester', 'payer', 'arbitrator']) || Object.keys(a.escrowKeys).length !== 3 || !Object.values(a.escrowKeys).every(k => KEY.test(k)) || new Set(Object.values(a.escrowKeys).map(k => k.slice(2))).size !== 3) fail('Agreement requires three distinct escrow keys.')
-  try { for(const key of [...Object.values(a.escrowKeys),`02${a.feeRecipient}`])pointFromHex(key) }catch{fail('Agreement contains an invalid curve key.')}
+  try { for(const key of [...Object.values(a.escrowKeys),...(a.serviceFeeSats>0?[`02${a.feeRecipient}`]:[])])pointFromHex(key) }catch{fail('Agreement contains an invalid curve key.')}
   if (!integer(a.paise) || !integer(a.createdAt, 0) || !integer(a.quoteExpiresAt) || a.quoteExpiresAt !== a.createdAt + 300 || httpsOrigin(a.mint) !== a.mint) fail('Invalid amount, mint or quote deadline.')
-  const fees = feeBreakdown(a.payerSats, a.fundingFeeSats)
+  const fees = feeBreakdown(a.payerSats, a.fundingFeeSats, a.termsVersion)
+  if (a.serviceFeeSats>0?!HEX.test(a.feeRecipient):a.feeRecipient!==null) fail('Invalid platform fee recipient.');
   if (a.serviceFeeSats !== fees.serviceFeeSats) fail('Service fee differs from agreed terms.')
   if (!integer(a.releaseFeeSats, 0) || !integer(a.escrowSats) || BigInt(a.escrowSats) !== BigInt(a.payerSats) + BigInt(a.releaseFeeSats)) fail('Invalid escrow fee allowance.')
   if (!exact(a.destination, ['vpa', 'payee', 'note']) || typeof a.destination.vpa !== 'string' || !/^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z]{2,64}$/.test(a.destination.vpa) || [a.destination.payee, a.destination.note].some(v => v !== undefined && (typeof v !== 'string' || v.length > 256))) fail('Invalid private payment destination.')

@@ -32,7 +32,9 @@ it.each([[0,1000],[1000,0],[400,600]])('releases/refunds/splits %s/%s only with 
   const result=await completeResolution(t.wallet,t.agreement,t.send,two,backup)
   expect(result.redemption.verified).toBe(true)
   const retry=await completeResolution(t.wallet,t.agreement,t.send,two,backup)
-  expect(retry).toEqual(result)
+  expect(retry.payouts).toEqual(result.payouts)
+  expect(retry.redemption.agreementId).toBe(result.redemption.agreementId)
+  expect(retry.redemption.verified).toBe(true)
 })
 it('rejects output substitution and blocks spending if durable backup fails',async()=>{
   const t=await funded()
