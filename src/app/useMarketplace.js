@@ -4,7 +4,7 @@ import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
 import { feeBreakdown, TERMS_VERSION } from '../marketplace/pricing.js'
-import { marketplaceConfig } from '../marketplace/config.js'
+import { marketplaceConfig, assertDeploymentAgreement } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
 import { connectMint, prepareFunding, completeFunding, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
 import { prepareFee, completeFee, verifyFeeProofs } from '../marketplace/fees.js'
@@ -77,6 +77,11 @@ export function useMarketplace(client, signer) {
           if(await contentHash(a)!==message.agreementId || ![a.requester,a.payer].includes(message.pubkey) || ![a.requester,a.payer].includes(signer.pubkey))return
           const request=await vault.read(`request:${message.payload.requestId}`)
           if(!request?.value.escrowKey || a.escrowKeys[a.requester===signer.pubkey?'requester':'payer']!==request.value.escrowKey.pubkey)return
+          const original=parsePrivate(request.value.request),listing=request.value.listing
+          if(listing.pubkey!==message.pubkey||a.mint!==listing.mint||a.listingId!==listing.listingId||a.paise!==original.payload.paise)return
+          // Compare semantic destination fields, independent of JSON ordering.
+          if(listing.type==='payer-listing'&&(a.requester!==signer.pubkey||a.payer!==message.pubkey||['vpa','payee','note'].some(k=>a.destination[k]!==original.payload.destination?.[k])))return
+          if(listing.type==='qr-request'&&(a.payer!==signer.pubkey||a.requester!==message.pubkey))return
           if(!await vault.read(`trade:${message.agreementId}`))await vault.write(`trade:${message.agreementId}`,{kind:'trade',agreement:a,escrowKey:request.value.escrowKey,events:[signed],evidence:{}})
         } else {
           const row=await vault.read(`trade:${message.agreementId}`)
@@ -144,6 +149,7 @@ export function useMarketplace(client, signer) {
     const me=signer.pubkey
     if(![a.requester,a.payer].includes(me))throw new Error('Only participants can perform this action.')
     if(action==='accept'&&(clock>a.quoteExpiresAt||!inbox))throw new Error('Quote expired or private inbox is not ready.')
+    if(action==='accept')assertDeploymentAgreement(config,a)
     if(action==='accept'&&me===a.payer) {
       for(const r of await vault.snapshot())if(r.value.kind==='trade'&&r.id!==row.id&&r.value.agreement.payer===me) {
         const other=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence)
@@ -180,6 +186,7 @@ export function useMarketplace(client, signer) {
     row=await vault.read(row.id)
     const a=row.value.agreement,id=row.id.slice(6),view=tradeView(a,id,row.value.events,row.value.evidence)
     if(signer.pubkey!==a.requester)throw new Error('Only the requester funds this agreement.')
+    assertDeploymentAgreement(config,a)
     if(row.value.evidence.funding?.verified)throw new Error('Already funded. Retry pending messages instead of funding again.')
     if(!view.canFund&&!row.value.fundingOperation&&!row.value.feeOperation)throw new Error('Funding window closed or agreement unavailable.')
     const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const view=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...view,occupiesSlot:view.occupiesSlot||!!r.value.feeOperation&&!view.completed}}})

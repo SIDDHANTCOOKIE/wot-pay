@@ -6,3 +6,7 @@ export function marketplaceConfig(env = import.meta.env) {
   const ready=panel.length > 0 && /^[0-9a-f]{64}$/.test(feeRecipient)
   return { panel, feeRecipient, ready, protectedEnabled: ready && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
 }
+
+export function assertDeploymentAgreement(config, agreement) {
+  if(!config.ready||agreement.feeRecipient!==config.feeRecipient||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKey===agreement.escrowKeys.arbitrator))throw new Error('Agreement must use the configured independent arbitrator panel and fee recipient.')
+}
