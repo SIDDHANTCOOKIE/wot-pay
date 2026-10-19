@@ -75,7 +75,7 @@ export function tallyStamps(stamps, dist, events = []) {
       (s.pubkey === claim.pubkey && s.counterparty === offer.pubkey)
     ))
       continue
-    if (events.some(e => e.type === 'cancel' && e.claimId === claim.id && e.offerId === offer.id && e.pubkey === claim.pubkey && e.created_at >= claim.created_at)) continue
+    if (!events.some(e => e.type === 'accept' && e.offerId === offer.id && e.claimId === claim.id && e.pubkey === offer.pubkey && e.counterparty === claim.pubkey && e.created_at >= claim.created_at && (!offer.expiresAt || e.created_at < offer.expiresAt)) && events.some(e => e.type === 'cancel' && e.claimId === claim.id && e.offerId === offer.id && e.pubkey === claim.pubkey && e.created_at >= claim.created_at)) continue
     if (s.created_at < claim.created_at || claim.created_at < offer.created_at) continue
     if (s.pubkey === s.counterparty) continue
     if (!dist.has(s.pubkey)) continue // author outside the graph: ignored
@@ -102,11 +102,13 @@ export function tallyStamps(stamps, dist, events = []) {
 }
 
 // Trust score for one pubkey. Distance sets the base, settles raise it
-// within a capped bonus; dispute weight is capped so repeated claims cannot erase the base.
+// within a capped bonus. Unreviewed complaints remain visible without a penalty.
 export function trustScore(pk, dist, tally) {
   const t = tally.get(pk) || { settles: 0, disputes: 0 }
   const base = weightOf(dist, pk)
-  return (base * (1 + Math.log2(1 + Math.min(MAX_SETTLE_WEIGHT, t.settles)))) / (1 + 3 * Math.min(MAX_DISPUTE_WEIGHT, t.disputes))
+  // Legacy disputes are allegations, not reviewed misconduct. Display them,
+  // but do not turn them into a ranking penalty.
+  return base * (1 + Math.log2(1 + Math.min(MAX_SETTLE_WEIGHT, t.settles)))
 }
 
 export function createRanker({ viewer, followLists = [], stamps = [], events = [] }) {
@@ -173,7 +175,7 @@ export async function loadTrustData(query, viewer, { depth = 2, maxAuthors = 100
   }
   const claimIds = [...new Set(trades.filter(e => e.kind === KIND.CLAIM).map(e => e.id))]
   for (let i=0;i<claimIds.length;i+=CHUNK) {
-    try { trades.push(...await query({kinds:[KIND.CANCEL], '#e':claimIds.slice(i,i+CHUNK)})) } catch {}
+    try { trades.push(...await query({kinds:[KIND.CANCEL, KIND.ACCEPT], '#e':claimIds.slice(i,i+CHUNK)})) } catch {}
   }
   return { followLists, stamps, trades }
 }

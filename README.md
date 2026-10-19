@@ -20,7 +20,27 @@ UPI and sats don't share a payment rail. I built a Nostr client that lets someon
 
 This is a hackathon prototype for signed payment coordination. It does not verify payments or guarantee settlement.
 
-## how it works
+## Client-side marketplace migration (draft)
+
+This branch starts the agreed marketplace migration. It is **not a real-money escrow release**.
+
+- Browse first, with Pay a QR / Earn sats / My trades navigation.
+- A dismissible, browser-remembered example offer, restored through How it works.
+- Camera scanning is opt-in; typing a UPI ID and choosing a QR image also work.
+- New QR requests are private browser previews. Publishing new public VPA offers is disabled while protected matching is built.
+- Exact-decimal fixed or market-linked price previews, unrestricted premiums/discounts and a separate 1% requester service fee rounded up to whole sats. No fee is collected on this branch.
+- Existing trades remain accessible as **Legacy trade — no escrow**. Conflicting acceptances block payment instructions; cancellation cannot erase an accepted obligation. Token checks use the accepted bid.
+- IndexedDB public history and an outbox persist exact signed event IDs. My trades retries unconfirmed delivery without re-signing. Storage failure blocks outgoing publication.
+- Recovery settings create an encrypted snapshot and downloadable recovery kit. Optionally enter three independent Blossom hosts and verify/repair the same encrypted bytes through authenticated uploads and full hash-checked readback.
+
+Recovery is currently a **manual snapshot** of public history, pending public events and the local device identity. It does not back up legacy token DMs, remote signer secrets or an escrow wallet (none exists yet). The kit includes its recovery secret: protect it like a private key. Replication tests use simulated servers; production provider compatibility and retention remain unverified. There is no custom backend or background worker repairing copies while the app is closed.
+
+The app no longer penalizes legacy complaint statements as if they were reviewed misconduct. These remain visible; independently reviewed reputation outcomes are not implemented yet. Existing signed completion history is still self-reported and vulnerable to collusion.
+
+See [implementation status and release gates](docs/client-marketplace-v1.md) for the accepted decisions, what is implemented, and what must be completed before enabling protected trading.
+
+## Legacy flow (existing offers only)
+
 
 ```text
 scan or type UPI -> signed offer -> claim -> pay UPI externally
@@ -36,7 +56,7 @@ scan or type UPI -> signed offer -> claim -> pay UPI externally
 
 ## the trust orbit
 
-The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; disputes lower it. Only stamps from authors in your graph count.
+The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; pending complaints remain visible without a misconduct penalty. Only stamps from authors in your graph count.
 
 Following someone is not a payment guarantee. In-graph collusion can manufacture reputation, even when the referenced signed offer and claim exist. The ranker requires trade existence and maker/taker participation, but cannot prove money changed hands. A pasted npub selects whose follows to read; it does not authenticate you as that person.
 
@@ -79,9 +99,9 @@ npm test
 npm run dev
 ```
 
-On first load, choose Create a key, Use an existing key, or Explore as guest. Creating a key is explicit; guest mode is read-only. A device key is stored in plaintext localStorage, with an explicit export/import backup UI. Clearing site data loses that identity and access to its encrypted messages. Treat this as a demo key, not your primary wallet key.
+On first load, browse as a guest. Choose an identity when you want to act on an existing trade. Creating a key is explicit; guest mode is read-only. A device key is stored in plaintext localStorage, with an explicit export/import backup UI. Clearing site data loses that identity and access to its encrypted messages. Treat this as a demo key, not your primary wallet key.
 
-For a no-money state-flow demonstration, open a normal and private window, post using a sample UPI ID, claim with a sample Lightning address, and stamp both sides. Those buttons alone do not move or verify money. Label the demonstration simulated.
+For a no-money preview, browse the labeled example or enter a sample UPI ID and compare fixed/market pricing. New request publication is disabled on this branch.
 
 Camera access needs HTTPS on a phone. Use the [live demo](https://wot-pay.vercel.app/) and [phone checklist](docs/device-checklist.md). Use a test mint for ecash demonstrations and do not pay a real UPI request without deciding to spend that money.
 
@@ -112,9 +132,9 @@ Main passes 225 unit tests and the production build in CI, and CI deploys the sa
 
 There is no atomic swap, UTR verification, custody or escrow. Deterministic claim ordering only agrees when devices see the same events. A pending/lost claim is visible and payment links are withheld while pending, but the settling buffer is not finality. The browser loads one day of board events; recovery of older trades is limited. Settlement risk is made visible, not removed or economically measured.
 
-## next
+## Earlier prototype roadmap
 
-Optional escrow for the sats leg is possible future work. It is not part of this design and is not implemented in this demo.
+Protected 2-of-3 escrow is agreed future work for the marketplace; it is not implemented in this branch. See the migration release gates above.
 
 Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app and a short demo recording are linked at the top.
 

@@ -404,3 +404,12 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .identity-copy { max-width: 100%; overflow: hidden; }
 .offer .row > .dim { width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .follow-person .identity-copy .name { max-width: 100%; }
+
+.price-breakdown dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.price-breakdown dd { margin: 0; text-align: right; }
+.example-offer { border-style: dashed; }
+.how-it-works { margin: 12px 0; }
+summary { cursor: pointer; min-height: 32px; }
+select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line-2); border-radius: 10px; padding: 12px; width: 100%; }
+.tabs > button { min-height: 52px; flex: 1; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

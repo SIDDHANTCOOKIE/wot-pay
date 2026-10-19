@@ -51,7 +51,7 @@ describe('wot', () => {
     expect(r.explain(A).settles).toBe(r.explain(C).settles)
   })
 
-  it('a dispute lowers rank in a later query', () => {
+  it('a pending dispute is visible without a misconduct ranking penalty', () => {
     const stamps = [stamp('settled', V, A, 'o1'), stamp('settled', V, B, 'o2'), stamp('settled', A, B, 'o3')]
     const before = ranker({ viewer: V, followLists: graph, stamps })
     expect(before.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(A)
@@ -62,8 +62,9 @@ describe('wot', () => {
       followLists: graph,
       stamps: [...stamps, stamp('disputed', B, A, 'o4')],
     })
-    expect(after.explain(A).score).toBeLessThan(b0)
-    expect(after.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(B)
+    expect(after.explain(A).score).toBe(b0)
+    expect(after.explain(A).disputes).toBeGreaterThan(0)
+    expect(after.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(A)
   })
 
   it('more settles raise the score', () => {
@@ -150,11 +151,11 @@ describe('bounded reputation', () => {
     expect(r.explain(C).settles).toBe(1.5)
     expect(r.explain(C).score).toBeLessThan(r.explain(A).score)
   })
-  it('20 repeated disputes cannot drive a direct follow below a quarter of its base', () => {
+  it('unreviewed repeated disputes do not penalize the relationship score', () => {
     const stamps = Array.from({ length: 20 }, (_, i) => stamp('disputed', B, A, `dispute-${i}`, 100 + i))
     const r = ranker({ viewer: V, followLists: graph, stamps })
     expect(r.explain(A).disputes).toBe(1)
-    expect(r.explain(A).score).toBe(0.25)
+    expect(r.explain(A).score).toBe(1)
   })
   it('limits aggregate receipt weight even when many graph members collaborate', () => {
     const keys = Array.from({ length: 10 }, (_, i) => `friend-${i}`)

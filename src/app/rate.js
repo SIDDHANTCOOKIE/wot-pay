@@ -1,8 +1,8 @@
 // BTC price in INR. Falls back to null; the user can type sats by hand.
 let cached = null
 
-export async function inrPerBtc() {
-  if (cached && Date.now() - cached.at < 5 * 60_000) return cached.value
+export async function inrPerBtc({ refresh = false } = {}) {
+  if (!refresh && cached && Date.now() - cached.at < 5 * 60_000) return cached.value
   try {
     const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=inr')
     const value = (await r.json())?.bitcoin?.inr

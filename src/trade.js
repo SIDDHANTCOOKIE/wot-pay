@@ -3,7 +3,7 @@
 
 export function tradeState(offer, events) {
   const related = events.filter((e) => e.offerId === offer.id)
-  const claims = related
+  const allClaims = related
     .filter(
       (e) =>
         e.type === 'claim' &&
@@ -12,10 +12,16 @@ export function tradeState(offer, events) {
         e.created_at >= offer.created_at &&
         (!offer.expiresAt || e.created_at < offer.expiresAt),
     )
-    // Same-second claims are ordered by id so every device agrees on who leads.
+  const acceptances = related.filter(e => e.type === 'accept' && e.pubkey === offer.pubkey &&
+    allClaims.some(c => c.id === e.claimId && c.pubkey === e.counterparty && e.created_at >= c.created_at) &&
+    (!offer.expiresAt || e.created_at < offer.expiresAt))
+    .sort((a,b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+  const conflict = new Set(acceptances.map(e => e.claimId)).size > 1
+  // A withdrawal cannot erase an accepted obligation, even if backdated.
+  const claims = allClaims
     .filter(
       (c) =>
-        !related.some(
+        acceptances.some(e => e.claimId === c.id) || !related.some(
           (e) =>
             e.type === 'cancel' &&
             e.claimId === c.id &&
@@ -25,11 +31,8 @@ export function tradeState(offer, events) {
     )
     .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1))
 
-  const acceptance = related.filter(e => e.type === 'accept' && e.pubkey === offer.pubkey &&
-    claims.some(c => c.id === e.claimId && c.pubkey === e.counterparty && e.created_at >= c.created_at) &&
-    (!offer.expiresAt || e.created_at < offer.expiresAt))
-    .sort((a,b) => a.created_at - b.created_at || a.id.localeCompare(b.id))[0]
-  // One deterministic signed maker acceptance controls payment access.
+  const acceptance = acceptances[0]
+  // Multiple acceptances for different claims block payment access.
   // Legacy maker stamps remain readable, but never unlock new payment instructions.
   const makerStamp = latest(
     related.filter(
@@ -57,11 +60,13 @@ export function tradeState(offer, events) {
   if (makerStamp || takerStamp) status = 'stamped'
   if (makerStamp?.type === 'settled' && takerStamp?.type === 'settled') status = 'settled'
   if (makerStamp?.type === 'disputed' || takerStamp?.type === 'disputed') status = 'disputed'
+  if (conflict) status = 'conflict'
   if (status === 'open' && offer.expiresAt && offer.expiresAt < Math.floor(Date.now() / 1000))
     status = 'expired'
 
   const agreedSats = claim?.sats ?? offer.sats
-  return { status, claims, claim, acceptance, accepted: !!acceptance && acceptance.claimId === claim?.id, makerStamp, takerStamp, agreedSats }
+  const cancellationRequested = !!acceptance && related.some(e => e.type === 'cancel' && e.claimId === claim?.id && e.pubkey === claim?.pubkey && e.created_at >= claim.created_at)
+  return { status, claims, claim, acceptance, conflict, cancellationRequested, accepted: !conflict && !!acceptance && acceptance.claimId === claim?.id, makerStamp, takerStamp, agreedSats }
 }
 
 const isStamp = (e) => e.type === 'settled' || e.type === 'disputed'

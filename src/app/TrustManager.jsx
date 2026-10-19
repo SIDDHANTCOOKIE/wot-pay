@@ -41,7 +41,9 @@ export default function TrustManager({ board, signer, onChanged }) {
         throw Error('Your follows changed. Review the updated list and try again.')
       }
       const signed = await signer.sign(mergeFollows(current, signer.pubkey, pending.add, pending.remove))
-      await board.publish(signed)
+      // Follow-list replacement has its own refresh/review flow; it is not a
+      // trade event and must not enter the trade outbox.
+      await board.client.publish(signed)
       setList(signed)
       setLoaded(true)
       setPending(null)

@@ -33,14 +33,23 @@ describe('signed maker acceptance',()=>{
       expect(tradeState(o,[a,b,bad]).accepted).toBe(false)
     expect(tradeState({...o,expiresAt:time},[a,accept(a)]).accepted).toBe(false)
   })
-  it('first signed acceptance wins, with lowest id for a same-second tie',()=>{
+  it('conflicting acceptances block payment in every arrival order',()=>{
     const x=accept(a),y=accept(b)
-    const winner=x.id<y.id?x:y
-    expect(tradeState(o,[a,b,x,y]).acceptance.id).toBe(winner.id)
-    expect(tradeState(o,[a,b,y,x]).acceptance.id).toBe(winner.id)
+    for(const events of [[a,b,x,y],[y,b,x,a]]) {
+      const state=tradeState(o,events)
+      expect(state.conflict).toBe(true)
+      expect(state.accepted).toBe(false)
+      expect(state.status).toBe('conflict')
+    }
   })
-  it('a valid claim cancellation removes its acceptance',()=>{
+  it('withdrawal preserves the accepted obligation and requests cancellation',()=>{
     const ok=accept(a),cancel={type:'cancel',pubkey:taker.pk,offerId:o.id,claimId:a.id,created_at:time}
-    expect(tradeState(o,[a,b,ok,cancel]).accepted).toBe(false)
+    for(const events of [[a,b,ok,cancel],[cancel,ok,b,a]]) {
+      const state=tradeState(o,events)
+      expect(state.accepted).toBe(true)
+      expect(state.claim.id).toBe(a.id)
+      expect(state.cancellationRequested).toBe(true)
+      expect(state.status).toBe('claimed')
+    }
   })
 })

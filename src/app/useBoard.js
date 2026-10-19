@@ -1,3 +1,4 @@
+import { createHistory, verifiedPublicEvent } from '../history.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRelayClient } from '../relays.js'
 import { connectivity } from '../offline.js'
@@ -10,6 +11,9 @@ const DAY = 24 * 3600
 // Live view of the board: every app event from the last day, the viewer's
 // trust data, and profile names.
 export function useBoard(trustRoot, me, revision = 0) {
+  const history = useMemo(() => createHistory(), [])
+  const [historyError, setHistoryError] = useState('')
+  const [pending, setPending] = useState([])
   const client = useMemo(() => createRelayClient(), [])
   const [events, setEvents] = useState(() => new Map())
   const [trust, setTrust] = useState({ followLists: [], stamps: [], loading: true })
@@ -19,6 +23,44 @@ export function useBoard(trustRoot, me, revision = 0) {
   const [profileRetry, setProfileRetry] = useState(0)
   const asked = useRef(new Set())
 
+  const remember = (ev) => {
+    const verified = verifiedPublicEvent(ev)
+    if (!verified) return
+    const p = parse(verified)
+    setEvents(prev => prev.has(p.id) ? prev : new Map(prev).set(p.id, p))
+    history.acknowledge(ev).then(() => setPending(prev => prev.filter(e => e.id !== ev.id))).catch(() => setHistoryError('Could not save trade history. Keep this browser open and check storage permissions.'))
+  }
+  useEffect(() => {
+    let live = true
+    history.load().then(raw => {
+      if (!live) return
+      setEvents(prev => new Map([...raw.map(e => [e.id, parse(e)]), ...prev]))
+      const ids = raw.filter(e => parse(e)?.type === 'offer').map(e => e.id)
+      for (let i = 0; i < ids.length; i += 100)
+        client.query({ '#e': ids.slice(i, i + 100) }).then(list => { if (live) list.forEach(remember) }).catch(() => {})
+    }).catch(() => setHistoryError('Local history is unavailable. Relay history may be incomplete.'))
+    return () => { live = false }
+  }, [history, client])
+  useEffect(() => {
+    let live = true
+    setPending([])
+    if (!me) return
+    history.pending(me).then(list => { if (live) setPending(list) }).catch(() => {})
+    // Recover this identity's older trades, beyond the one-day discovery board.
+    Promise.all([client.query({ authors: [me], '#t': ['wot-pay'] }), client.query({ '#p': [me], '#t': ['wot-pay'] })]).then(async groups => {
+      if (!live) return
+      const raw = groups.flat()
+      raw.forEach(remember)
+      const ids = [...new Set(raw.map(parse).filter(Boolean).map(e => e.offerId || (e.type === 'offer' ? e.id : null)).filter(Boolean))]
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100)
+        const groups = await Promise.all([client.query({ ids: chunk }), client.query({ '#e': chunk })])
+        if (live) groups.flat().forEach(remember)
+      }
+    }).catch(() => {})
+    return () => { live = false }
+  }, [me, client, history])
+
   const boardSub = useRef(null)
   useEffect(() => {
     const linked = location.hash.match(/^#offer\/([0-9a-f]{64})$/)?.[1]
@@ -27,8 +69,7 @@ export function useBoard(trustRoot, me, revision = 0) {
         .then((groups) => {
           const list = groups.flat()
           for (const ev of list) {
-            const p = parse(ev)
-            if (p) setEvents((prev) => new Map(prev).set(p.id, p))
+            remember(ev)
           }
         })
         .catch(() => {})
@@ -36,9 +77,7 @@ export function useBoard(trustRoot, me, revision = 0) {
       boardSub.current?.()
       const since = Math.floor(Date.now() / 1000) - DAY
       boardSub.current = client.subscribe({ since }, (ev) => {
-        const p = parse(ev)
-        if (!p) return
-        setEvents((prev) => (prev.has(p.id) ? prev : new Map(prev).set(p.id, p)))
+        remember(ev)
       })
     }
     start()
@@ -46,7 +85,7 @@ export function useBoard(trustRoot, me, revision = 0) {
   }, [client])
 
   useEffect(() => {
-    if (!trustRoot) return
+    if (!trustRoot) { setTrust({ followLists: [], stamps: [], trades: [], loading: false }); return }
     let live = true
     setTrust((t) => ({ ...t, loading: true }))
     loadTrustData((f) => f.kinds?.includes(3) ? client.queryIdentity(f, { discover: f.authors?.length === 1 && f.authors[0] === trustRoot, refresh: revision > 0 }) : client.query(f), trustRoot).then((d) => live && setTrust({ ...d, loading: false }))
@@ -107,9 +146,7 @@ export function useBoard(trustRoot, me, revision = 0) {
         boardSub.current?.()
         const since = Math.floor(Date.now() / 1000) - DAY
         boardSub.current = client.subscribe({ since }, (ev) => {
-          const p = parse(ev)
-          if (!p) return
-          setEvents((prev) => (prev.has(p.id) ? prev : new Map(prev).set(p.id, p)))
+          remember(ev)
         })
         downSince.current = Date.now()
       }
@@ -122,26 +159,30 @@ export function useBoard(trustRoot, me, revision = 0) {
     }
   }, [client])
 
-  // Show an event locally right away, then send it. If no relay takes it,
-  // take it back off the screen so nothing looks sent that wasn't.
+  // Persist the exact signed operation before sending. A lost acknowledgement
+  // is uncertain delivery, never evidence that nothing was published.
   async function publish(signed) {
-    const p = parse(signed)
-    if (p) setEvents((prev) => new Map(prev).set(p.id, p))
+    const next = parse(signed)
+    if (!next || signed.pubkey !== me) throw new Error('Signed event does not match the active identity.')
+    const unsent = await history.pending(me)
+    if (unsent.some(e => e.id !== signed.id && parse(e)?.offerId === next.offerId))
+      throw new Error('A saved event for this trade still has unconfirmed delivery. Retry it from My trades first.')
+    await history.save(signed, true)
+    setPending(prev => [...prev.filter(e => e.id !== signed.id), signed])
     try {
-      return await client.publish(signed)
+      const result = await client.publish(signed)
+      await history.acknowledge(signed)
+      remember(signed)
+      setPending(prev => prev.filter(e => e.id !== signed.id))
+      return result
     } catch (e) {
-      if (p)
-        setEvents((prev) => {
-          const next = new Map(prev)
-          next.delete(p.id)
-          return next
-        })
-      throw e.name === 'TokenLeakError' ? e : new Error('No relay accepted it. Nothing was sent, try again.')
+      throw e.name === 'TokenLeakError' ? e : new Error('Delivery unconfirmed. Retry the saved event from My trades; do not create another payment instruction.')
     }
   }
 
   return {
     client,
+    historyError, pending, retryPending: publish,
     refreshIdentity: async () => { asked.current.delete(me); setIdentityRevision(n => n + 1) },
     events: all,
     ranker,

@@ -1,3 +1,4 @@
+import ExampleOffer from './ExampleOffer.jsx'
 import TradeOutcome from './TradeOutcome.jsx'
 import { useEffect, useMemo, useState } from 'react'
 import { claim as claimEvent, settled, disputed } from '../events.js'
@@ -9,10 +10,14 @@ import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
-export default function BoardScreen({ board, signer, onRequireIdentity }) {
+export default function BoardScreen({ board, signer, onRequireIdentity, initialOfferId }) {
+  const [sort, setSort] = useState('recommended')
+  const [relationship, setRelationship] = useState('all')
+  const [maxInr, setMaxInr] = useState('')
+  const [mintFilter, setMintFilter] = useState('')
   const [openId, setOpenId] = useState(() => {
     const match = location.hash.match(/^#offer\/([0-9a-f]{64})$/)
-    return match?.[1] || null
+    return initialOfferId || match?.[1] || null
   })
   const me = signer?.pubkey
 
@@ -23,9 +28,14 @@ export default function BoardScreen({ board, signer, onRequireIdentity }) {
   )
 
   const mine = withState.filter(({ s }) => !!me && s.claims.some(c => c.pubkey === me) && s.status !== 'settled').map(({ o }) => o)
-  const open = board.ranker.rank(
+  const ranked = board.ranker.rank(
     withState.filter(({ o, s }) => s.status === 'open' && o.pubkey !== me).map(({ o }) => o),
   )
+  const open = ranked.filter(o => (!maxInr || o.inr <= Number(maxInr)) &&
+    (!mintFilter || o.mint === mintFilter) &&
+    (relationship === 'all' || (relationship === 'direct' ? o.trust.hops === 1 : o.trust.hops !== null && o.trust.hops <= 2)))
+  if (sort === 'rate') open.sort((a,b) => b.sats / b.inr - a.sats / a.inr || b.created_at - a.created_at)
+  if (sort === 'newest') open.sort((a,b) => b.created_at - a.created_at)
 
   const current = openId && offers.find((o) => o.id === openId)
   if (openId && !current)
@@ -60,9 +70,19 @@ export default function BoardScreen({ board, signer, onRequireIdentity }) {
 
   return (
     <section className="screen">
-      <h1>Pay for someone</h1>
-      <p className="lede">{signer ? 'Pay a QR in rupees, get sats back. Closest people first.' : 'Explore public offers. Choose an identity before claiming or paying.'}</p>
+      <h1>Earn sats</h1>
+      <p className="lede">{signer ? 'Pay someone’s UPI request and receive their agreed sats.' : 'Browse offers freely. Choose an identity when you want to trade.'}</p>
 
+      <ExampleOffer />
+      <p className="dim">Existing offers are legacy trades with public payment details and no escrow. Protected listings are coming next.</p>
+      <div className="board-filters">
+        <label className="field">Sort offers<select value={sort} onChange={e => setSort(e.target.value)}><option value="recommended">Recommended</option><option value="rate">Highest sats per ₹ earned</option><option value="newest">Newest</option></select></label>
+        <details><summary>Filter offers</summary>
+          <label className="field">Maximum UPI amount (₹)<input inputMode="decimal" value={maxInr} onChange={e => setMaxInr(e.target.value)} /></label>
+          <label className="field">Relationship<select value={relationship} onChange={e => setRelationship(e.target.value)}><option value="all">Everyone</option><option value="direct">People I follow</option><option value="mutual">Within two connections</option></select></label>
+          <label className="field">Mint<select value={mintFilter} onChange={e => setMintFilter(e.target.value)}><option value="">Any mint</option>{[...new Set(ranked.map(o => o.mint).filter(Boolean))].map(mint => <option key={mint} value={mint}>{mintName(mint)}</option>)}</select></label>
+        </details>
+      </div>
       {mine.length > 0 && (
         <>
           <h2>Your trades</h2>
@@ -191,6 +211,9 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       <button className="back" onClick={onBack}>
         ← Board
       </button>
+      <p className="hint">Legacy trade — no escrow.</p>
+      {state.conflict && <p className="hint warn" role="alert">Conflicting payer acceptances. Do not pay; resolve this with the requester.</p>}
+      {state.cancellationRequested && <p className="hint warn">Cancellation requested. This does not cancel the accepted obligation.</p>}
       <Steps at={step} labels={['Claim', 'Pay UPI', 'Get sats', 'Settle']} />
 
       <div className="card summary">
@@ -209,19 +232,19 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
           <Name pubkey={offer.pubkey} names={board.names} profiles={board.profiles} you={me} />
           <div className="where">{where(trust)}</div>
           <div className="rec">
-            {trust.settles || 0} settled · {trust.disputes || 0} disputed
+            {trust.settles || 0} settled · {trust.disputes || 0} pending complaints
           </div>
         </div>
         <p className="dim trust-note">
           {trust.hops === null
             ? 'Nobody in your web knows this person. If they don’t send sats, you lose the rupees.'
-            : `Score ${trust.score.toFixed(2)}. Settles and disputes only count from people in your web.`}
+            : `Score ${trust.score.toFixed(2)}. History is self-reported by people in your web. Pending complaints do not lower this score.`}
         </p>
       </div>
 
       {signer && !mineClaim && <ExposureWarning trust={trust} loading={board.trustLoading} />}
 
-      {!signer && <div className="card"><p>Guest demo mode is read-only. Choose a signer before claiming or paying.</p><button className="btn primary" onClick={onRequireIdentity}>Choose identity to claim</button></div>}
+      {!signer && <div className="card"><p>Browsing as guest is read-only. Choose a signer before claiming or paying.</p><button className="btn primary" onClick={onRequireIdentity}>Choose identity to claim</button></div>}
       {signer && !mineClaim && (
         <div className="card">
           <div className="field">
@@ -293,7 +316,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
       )}
 
       {mineClaim && !state.accepted && !myStamp && <div className="card hint warn" role="status">Waiting for maker acceptance. Do not pay yet.</div>}
-      {mineClaim && leading && state.accepted && !myStamp && !claimPending && (
+      {mineClaim && leading && state.accepted && !state.cancellationRequested && !myStamp && !claimPending && (
         <div className="card">
           <p>The maker signed acceptance for your exact claim. Check the payee and amount before paying.</p>
           <p>Pay <b>{rupees(offer.inr)}</b> to <span className="mono">{offer.vpa}</span></p>
@@ -315,7 +338,7 @@ function Detail({ board, signer, offer, onBack, onRequireIdentity }) {
                   Open wallet
                 </a>
               </div>
-              {tokenIssues(t, { sats: offer.sats, mint: mineClaim.receive?.mint }).map((issue) => (
+              {tokenIssues(t, { sats: state.agreedSats, mint: mineClaim.receive?.mint }).map((issue) => (
                 <p key={issue} className="hint warn">
                   {issue}
                 </p>
