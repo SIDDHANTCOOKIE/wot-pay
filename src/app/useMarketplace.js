@@ -9,7 +9,7 @@ import { newRecoverySecret } from '../recovery.js'
 import { connectMint, prepareFunding, completeFunding, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
 import { prepareFee, completeFee, verifyFeeProofs } from '../marketplace/fees.js'
 import { backupOperation, syncPrivateBackup } from '../marketplace/backup.js'
-import { requireFreeSlot, validateResolution } from '../marketplace/protocol.js'
+import { requireFreeSlot, validateResolution, payerCommitted } from '../marketplace/protocol.js'
 import { getDecodedToken, getEncodedToken, getPubKeyFromPrivKey } from '@cashu/cashu-ts'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { resolutionFingerprint, verifyPayout, prepareClaim, completeClaim } from '../marketplace/escrow.js'
@@ -24,6 +24,7 @@ export function useMarketplace(client, signer) {
   const supported = !!signer?.sealLocal
   const vault = useMemo(() => supported ? createVault(signer) : null,[signer,supported])
   const config = useMemo(() => marketplaceConfig(),[])
+  const mintFor = agreement => connectMint(agreement,{restoreVerified:config.restoreMints.includes(agreement.mint)})
   const ingestQueue = useRef(Promise.resolve())
   const reload = async () => { if (vault) setRecords(await vault.snapshot()) }
   useEffect(()=>{
@@ -152,11 +153,7 @@ export function useMarketplace(client, signer) {
     if(action==='accept'&&a.termsVersion!==TERMS_VERSION)throw new Error('Request a new quote with no platform fee before accepting.')
     if(action==='accept')assertDeploymentAgreement(config,a)
     if(action==='accept'&&me===a.payer) {
-      for(const r of await vault.snapshot())if(r.value.kind==='trade'&&r.id!==row.id&&r.value.agreement.payer===me) {
-        const other=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence)
-        const reserved=r.value.events.map(parsePrivate).some(e=>e?.action==='accept'&&e.pubkey===me)&&clock<=r.value.agreement.quoteExpiresAt+120
-        if(other.occupiesSlot||reserved)throw new Error('Finish or expire your existing accepted trade before accepting another.')
-      }
+      if(payerCommitted(me,await vault.snapshot(),row.id))throw new Error('Finish or expire your existing accepted trade before accepting another.')
       for(const r of await vault.snapshot())if(r.value.kind==='listing') {
         const listing=JSON.parse(r.value.signed.content)
         if(listing.type==='payer-listing'&&listing.available)await publishListing({...listing,available:false})
@@ -192,7 +189,7 @@ export function useMarketplace(client, signer) {
     if(!view.canFund&&!row.value.fundingOperation&&!row.value.feeOperation)throw new Error('Funding window closed or agreement unavailable.')
     const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const view=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...view,occupiesSlot:view.occupiesSlot||!!(r.value.feeOperation||r.value.fundingOperation)&&!view.completed}}})
     requireFreeSlot(a.payer,latestTrades,id)
-    const wallet=await connectMint(a)
+    const wallet=await mintFor(a)
     const backup=operation=>backupOperation(vault,signer,operation,fetch,client)
     const acceptance=row.value.events.find(e=>e.pubkey===signer.pubkey&&parsePrivate(e)?.action==='accept')
     if(!acceptance)throw new Error('Your signed acceptance is missing.')
@@ -231,16 +228,18 @@ export function useMarketplace(client, signer) {
     const a=row.value.agreement
     const message=row.value.events.map(parsePrivate).filter(e=>e?.action==='funding'&&e.pubkey===a.requester).at(-1)
     if(!message)throw new Error('No funding proof has arrived.')
-    const wallet=await connectMint(a)
+    const wallet=await mintFor(a)
     const funding=await verifyFunding(wallet,a,message.payload.proofs)
     if(a.serviceFeeSats>0)await verifyFeeProofs(wallet,a,message.payload.feeProofs)
+    // Funding that reaches a payer already committed to another trade is refund-only.
+    if(signer.pubkey===a.payer&&payerCommitted(a.payer,await vault.snapshot(),row.id))funding.late=true
     await save(row,{proofs:message.payload.proofs,evidence:{...row.value.evidence,funding,feeVerified:true}});await reload()
   }
   async function proposeResolution(row,allocation) {
     row=await vault.read(row.id)
     const a=row.value.agreement,view=tradeView(a,row.id.slice(6),row.value.events,row.value.evidence)
     validateResolution(a,view,allocation,signer.pubkey)
-    const wallet=await connectMint(a),operation=await prepareResolution(wallet,a,row.value.proofs,allocation)
+    const wallet=await mintFor(a),operation=await prepareResolution(wallet,a,row.value.proofs,allocation)
     row=await save(row,{resolutionOperation:operation})
     await sendTrade(row,'resolution',{operation});await reload()
   }
@@ -259,7 +258,7 @@ export function useMarketplace(client, signer) {
   async function settle(row,operation) {
     if(!config.protectedEnabled)throw new Error('Mint settlement is disabled until deployment verification.')
     row=await vault.read(row.id)
-    const wallet=await connectMint(row.value.agreement)
+    const wallet=await mintFor(row.value.agreement)
     validateResolution(row.value.agreement,tradeView(row.value.agreement,row.id.slice(6),row.value.events,row.value.evidence),operation.allocation,signer.pubkey)
     const result=await completeResolution(wallet,row.value.agreement,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
     row=await save(row,{payouts:result.payouts,evidence:{...row.value.evidence,redemption:result.redemption}})
@@ -269,7 +268,7 @@ export function useMarketplace(client, signer) {
     row=await vault.read(row.id)
     const a=row.value.agreement,message=row.value.events.map(parsePrivate).filter(e=>e?.action==='payout').at(-1)
     if(!message)throw new Error('No payout receipt has arrived.')
-    const wallet=await connectMint(a),{operation,payouts}=message.payload
+    const wallet=await mintFor(a),{operation,payouts}=message.payload
     const redemption=await verifyPayout(wallet,a,row.value.proofs,operation,payouts)
     await save(row,{payouts,resolutionOperation:operation,evidence:{...row.value.evidence,redemption}});await reload()
   }
@@ -279,7 +278,7 @@ export function useMarketplace(client, signer) {
     if(row.value.claimResult)return getEncodedToken({mint:row.value.agreement.mint,proofs:row.value.claimResult.keep,unit:'sat'})
     const a=row.value.agreement,role=signer.pubkey===a.requester?'requester':signer.pubkey===a.payer?'payer':null
     if(!role||!row.value.evidence.redemption?.verified)throw new Error('Verify your settled payout first.')
-    const wallet=await connectMint(a)
+    const wallet=await mintFor(a)
     if(!row.value.claimOperation) {
       row=await save(row,{claimOperation:await prepareClaim(wallet,a,row.value.payouts[role],row.value.escrowKey.secret)})
       await reload();throw new Error(`Collection prepared. Mint fee: ${row.value.claimOperation.preview.fees} sats. Click Collect again to confirm this fee.`)

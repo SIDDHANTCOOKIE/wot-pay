@@ -4,6 +4,9 @@ import { digest } from '../recovery.js'
 import { pointFromHex } from '@cashu/cashu-ts'
 
 export const MARKET_TAG = 'wot-pay-v2'
+export const FUNDING_WINDOW = 120
+// Relay and mint latency allowed for a funding notice signed after the window.
+export const FUNDING_GRACE = 60
 export const LISTING_KIND = 30078
 export const PRIVATE_KIND = 1
 const HEX = /^[0-9a-f]{64}$/
@@ -106,22 +109,27 @@ export function tradeView(agreement, agreementId, rawEvents, evidence = {}, now 
   const cancellationAgreed = !!cancellation && active.some(e => e.action === 'cancel-agree' && e.pubkey !== cancellation.pubkey && e.payload.requestId === cancellation.id)
   const dispute = active.find(e => e.action === 'dispute')
   const funded = evidence.funding?.agreementId === agreementId && evidence.funding.verified === true
+  // Escrow that arrives after the window, or after the payer committed elsewhere,
+  // never obligates a UPI payment; it can only be refunded.
+  const notice = active.find(e => e.action === 'funding' && e.pubkey === agreement.requester)
+  const lateFunding = funded && (evidence.funding.late === true || !!notice && notice.created_at > acceptedAt + FUNDING_WINDOW + FUNDING_GRACE)
   const completed = funded && evidence.redemption?.agreementId === agreementId && evidence.redemption.verified === true
   const paymentStarted = reports.length > 0
   const merchantConfirmed = active.some(e => e.action === 'merchant-confirmed' && e.pubkey === agreement.requester)
   let status = accepted ? 'awaiting-funding' : now > agreement.quoteExpiresAt ? 'quote-expired' : 'awaiting-acceptance'
-  if (accepted && !funded && now > acceptedAt + 120) status = 'funding-expired'
+  if (accepted && !funded && now > acceptedAt + FUNDING_WINDOW) status = 'funding-expired'
   if (funded) status = 'funded'
   if (funded && paymentStarted) status = reports.at(-1).payload.status === 'pending' ? 'upi-pending' : 'payment-reported'
   if (funded && merchantConfirmed) status = 'awaiting-release'
+  if (lateFunding) status = 'late-funding-refund'
   if (cancellation) status = cancellationAgreed ? 'cancellation-agreed' : 'cancellation-requested'
   if (dispute) status = 'disputed'
   if (completed) status = 'completed'
   const followUps = completed ? active.filter(e => e.action === 'follow-up') : []
-  return { status, accepted, acceptedAt, funded, completed, paymentStarted, merchantConfirmed, cancellation, cancellationAgreed, dispute, followUps, events,
-    canFund: accepted && !funded && !cancellation && !dispute && now <= acceptedAt + 120,
-    canPay: accepted && funded && !completed && !paymentStarted && !cancellation && !dispute,
-    occupiesSlot: funded && !completed,
+  return { status, accepted, acceptedAt, funded, lateFunding, completed, paymentStarted, merchantConfirmed, cancellation, cancellationAgreed, dispute, followUps, events,
+    canFund: accepted && !funded && !cancellation && !dispute && now <= acceptedAt + FUNDING_WINDOW,
+    canPay: accepted && funded && !lateFunding && !completed && !paymentStarted && !cancellation && !dispute,
+    occupiesSlot: funded && !lateFunding && !completed,
     mayEscalate: funded && !completed && now >= (evidence.funding.verifiedAt || now) + 600,
     feeRefundEligible: !paymentStarted && (!!cancellationAgreed || ['quote-expired', 'funding-expired'].includes(status)),
   }
@@ -132,9 +140,21 @@ export function validateResolution(agreement, view, resolution, author) {
   if (BigInt(resolution.requesterSats) + BigInt(resolution.payerSats) + BigInt(resolution.mintFeeSats) !== BigInt(agreement.escrowSats)) fail('Resolution does not conserve escrow sats.')
   if (![agreement.requester, agreement.payer, agreement.arbitrator].includes(author) || !view.funded || view.completed) fail('Resolution is unavailable.')
   if (author === agreement.arbitrator && !view.dispute) fail('Arbitrator only acts on a dispute.')
+  if (view.lateFunding && resolution.payerSats !== 0) fail('Late escrow can only be refunded to the requester.')
   return resolution
 }
 
 export function requireFreeSlot(payer, trades, exceptId) {
   if (trades.some(t => t.id !== exceptId && t.agreement.payer === payer && t.view.occupiesSlot)) fail('Payer already has a funded or disputed trade. Resolve it first.')
+}
+
+// A payer's other trade (vault rows) holds the slot while funded, or while
+// its signed acceptance can still be met by on-time funding.
+export function payerCommitted(payer, rows, exceptId, now = Math.floor(Date.now() / 1000)) {
+  return rows.some(r => {
+    if (r.value?.kind !== 'trade' || r.id === exceptId || r.value.agreement.payer !== payer) return false
+    const view = tradeView(r.value.agreement, r.id.slice(6), r.value.events, r.value.evidence, now)
+    const reserved = !view.funded && r.value.events.map(parsePrivate).some(e => e?.action === 'accept' && e.pubkey === payer) && now <= r.value.agreement.quoteExpiresAt + FUNDING_WINDOW + FUNDING_GRACE
+    return view.occupiesSlot || reserved
+  })
 }

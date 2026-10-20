@@ -2,6 +2,7 @@ import { Wallet, OutputData, SigAll, serializeSwapPreview, deserializeSwapPrevie
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { canonical, contentHash, validateAgreement } from './protocol.js'
 import { assertSwapRecoveryPolicy } from './mint-policy.js'
+import { completeOrRestoreSwap } from './swap-recovery.js'
 
 const amount = n => typeof n?.toNumber === 'function' ? n.toNumber() : Number(n)
 const total = proofs => proofs.reduce((n,p) => n + BigInt(amount(p.amount)), 0n)
@@ -31,11 +32,13 @@ export function validateLockedProofs(agreement, proofs) {
   return proofs
 }
 
-export async function connectMint(agreement, wallet = new Wallet(agreement.mint)) {
+// restoreVerified: this exact mint passed a live lost-response NUT-09 test.
+export async function connectMint(agreement, { wallet = new Wallet(agreement.mint), restoreVerified = false } = {}) {
   validateAgreement(agreement)
   await wallet.loadMint()
-  for (const nut of [7, 11, 12, 19]) if (!wallet.getMintInfo().isSupported(nut).supported) throw new Error(`Mint must support NUT-${nut} for recoverable escrow.`)
-  assertSwapRecoveryPolicy(wallet.getMintInfo().isSupported(19).params)
+  const info = wallet.getMintInfo()
+  for (const nut of [7, 11, 12]) if (!info.isSupported(nut).supported) throw new Error(`Mint must support NUT-${nut} for recoverable escrow.`)
+  assertSwapRecoveryPolicy(info.isSupported(19), { supported: info.isSupported(9).supported, verified: restoreVerified })
   if (wallet.unit !== 'sat') throw new Error('Mint wallet must use sats.')
   return wallet
 }
@@ -61,7 +64,7 @@ export async function completeFunding(wallet, agreement, operation, durableBacku
   validateLockedProofs(agreement,(preview.sendOutputs || []).map(o=>({secret:new TextDecoder().decode(o.secret),amount:o.blindedMessage.amount})))
   if(amount(preview.fees)>agreement.fundingFeeSats)throw new Error('Funding fee exceeds agreement.')
   await requireBackup(operation,durableBackup)
-  const result = plainSwap(await wallet.completeSwap(preview))
+  const result = plainSwap(await completeOrRestoreSwap(wallet,preview))
   const funding = await verifyFunding(wallet, agreement, result.send)
   return { ...result, funding }
 }
@@ -142,7 +145,7 @@ export async function prepareClaim(wallet, agreement, proofs, privateKey) {
 export async function completeClaim(wallet, agreement, operation, privateKey, backup) {
   if(operation.kind!=='claim'||operation.agreementId!==await contentHash(agreement))throw new Error('Wrong payout collection operation.')
   await requireBackup(operation,backup)
-  return plainSwap(await wallet.completeSwap(deserializeSwapPreview(operation.preview),privateKey))
+  return plainSwap(await completeOrRestoreSwap(wallet,deserializeSwapPreview(operation.preview),privateKey))
 }
 
 export async function completeResolution(wallet, agreement, proofs, operation, durableBackup) {
@@ -152,7 +155,7 @@ export async function completeResolution(wallet, agreement, proofs, operation, d
   const eligible=split?[agreement.escrowKeys.requester,agreement.escrowKeys.payer]:Object.values(agreement.escrowKeys)
   if (!meetsSignerThreshold(pkg.witness?.signatures || [], transcript, eligible, 2)) throw new Error(split?'A split requires both participants’ signatures.':'Two distinct escrow signatures are required.')
   await requireBackup(operation,durableBackup)
-  const result = plainSwap(await wallet.completeSwap(SigAll.mergeSwapPackage(pkg, preview)))
+  const result = plainSwap(await completeOrRestoreSwap(wallet,SigAll.mergeSwapPackage(pkg, preview)))
   // Match recipient outputs by their secrets, not by a potentially changed order.
   const recipientSecrets = role => new Set(operation.groups[role].map(o => new TextDecoder().decode(OutputData.deserialize(o).secret)))
   const all = [...result.keep, ...result.send]

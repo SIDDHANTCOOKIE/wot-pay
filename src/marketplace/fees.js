@@ -1,6 +1,7 @@
 import { serializeSwapPreview, deserializeSwapPreview, hasValidDleq } from '@cashu/cashu-ts'
 import { contentHash } from './protocol.js'
 import { requireBackup, plainSwap } from './escrow.js'
+import { completeOrRestoreSwap } from './swap-recovery.js'
 
 const amount=p=>Number(p.amount)
 function feeLock(lock,agreement,id) {
@@ -29,7 +30,7 @@ export async function completeFee(wallet,agreement,operation,backup) {
   if(outputs.reduce((n,o)=>n+Number(o.blindedMessage.amount),0)!==agreement.serviceFeeSats||outputs.some(o=>{const [kind,lock]=JSON.parse(new TextDecoder().decode(o.secret));return kind!=='P2PK'||!feeLock(lock,agreement,operation.agreementId)}))throw new Error('Fee outputs have changed.')
   if(Number(preview.fees)>agreement.fundingFeeSats)throw new Error('Fee transfer cost exceeds the agreed funding allowance.')
   await requireBackup(operation,backup)
-  const result=plainSwap(await wallet.completeSwap(preview))
+  const result=plainSwap(await completeOrRestoreSwap(wallet,preview))
   await verifyFeeProofs(wallet,agreement,result.send)
   return result
 }
