@@ -11,7 +11,7 @@ export default function MyTrades({ board, signer, onOpen, onRequireIdentity, mar
     .filter(({ offer, state }) => offer.pubkey === signer.pubkey || state.claims.some(c => c.pubkey === signer.pubkey))
     .sort((a,b) => Number(a.state.status === 'settled' || a.state.status === 'expired') - Number(b.state.status === 'settled' || b.state.status === 'expired') || b.offer.created_at - a.offer.created_at)
   return <section className="screen"><h1>My trades</h1><p className="lede">Active and unresolved trades first.</p>
-    {market&&<ProtectedTrades market={market} signer={signer}/>}
+    {market&&(market.config.protectedEnabled||market.trades.length>0)&&<ProtectedTrades market={market} signer={signer}/>}
     {!!board.pending?.length && <div className="card"><h2>Delivery unconfirmed</h2><p>{board.pending.length} saved signed event(s). Retrying sends the same event IDs; it does not create new trade instructions.</p><button className="btn ghost" disabled={retrying} onClick={async () => {
       setRetrying(true); setMessage('')
       try { for (const event of board.pending) await board.retryPending(event); setMessage('Saved events acknowledged by a relay.') }

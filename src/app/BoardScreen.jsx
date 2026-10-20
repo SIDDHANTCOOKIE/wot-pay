@@ -12,6 +12,7 @@ import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rup
 
 // Taker: pick an offer from people you trust, pay it by UPI, get sats.
 export default function BoardScreen({ board, signer, onRequireIdentity, initialOfferId, market }) {
+  const protectedOn = !!market?.config.protectedEnabled
   const [sort, setSort] = useState('recommended')
   const [relationship, setRelationship] = useState('all')
   const [maxInr, setMaxInr] = useState('')
@@ -75,8 +76,8 @@ export default function BoardScreen({ board, signer, onRequireIdentity, initialO
       <p className="lede">{signer ? 'Pay someone’s UPI request and receive their agreed sats.' : 'Browse offers freely. Choose an identity when you want to trade.'}</p>
 
       <ExampleOffer />
-      {market&&<MarketplacePanel market={market} signer={signer} board={board} onRequireIdentity={onRequireIdentity}/>}
-      <details className="legacy-board"><summary>Older public offers · {open.length} open</summary>
+      {protectedOn&&<MarketplacePanel market={market} signer={signer} board={board} onRequireIdentity={onRequireIdentity}/>}
+      <details className="legacy-board" open={!protectedOn}><summary>{protectedOn?'Older public offers':'Public offers'} · {open.length} open</summary>
       <p className="dim">These legacy trades have public payment details and no escrow.</p>
       <div className="board-filters">
         <label className="field">Sort offers<select value={sort} onChange={e => setSort(e.target.value)}><option value="recommended">Recommended</option><option value="rate">Highest sats per ₹ earned</option><option value="newest">Newest</option></select></label>

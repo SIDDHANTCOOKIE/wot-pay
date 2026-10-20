@@ -1,10 +1,12 @@
 import QuotePreview from './QuotePreview.jsx'
 import TradeOutcome from './TradeOutcome.jsx'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { readToken, tokenIssues } from '../dm.js'
-import { acceptClaim, settled, disputed } from '../events.js'
+import { offer as offerEvent, acceptClaim, settled, disputed } from '../events.js'
 import { tradeState } from '../trade.js'
+import { inrPerBtc, inrToSats } from './rate.js'
 import Scanner from './Scanner.jsx'
+import { prefs } from './identity.js'
 import Orbit, { where } from './Orbit.jsx'
 import { Name, TrustBadge, ExposureWarning, Steps, Copy, MintChip, mintName, rupees, sats, ago } from './ui.jsx'
 
@@ -14,7 +16,9 @@ export default function PayScreen({ board, signer, activeId, setActiveId, market
   const mine = activeId && board.events.find((e) => e.id === activeId && e.type === 'offer' && e.pubkey === signer?.pubkey)
 
   if (mine) return <Live board={board} signer={signer} offer={mine} onDone={() => setActiveId(null)} />
-  if (draft)
+  // Public no-escrow offers remain until protected trading is configured.
+  const protectedOn = !!market?.config.protectedEnabled
+  if (draft && protectedOn)
     return (
       <QuotePreview
         market={market} signer={signer} board={board} onRequireIdentity={onRequireIdentity}
@@ -22,17 +26,146 @@ export default function PayScreen({ board, signer, activeId, setActiveId, market
         onBack={() => setDraft(null)}
       />
     )
-  return <Scan onResult={setDraft} />
+  if (draft)
+    return (
+      <Confirm
+        draft={draft}
+        signer={signer}
+        board={board}
+        onRequireIdentity={onRequireIdentity}
+        onBack={() => setDraft(null)}
+        onPosted={(id) => {
+          setDraft(null)
+          setActiveId(id)
+        }}
+      />
+    )
+  return <Scan onResult={setDraft} protectedOn={protectedOn} />
 }
 
-function Scan({ onResult }) {
+function Scan({ onResult, protectedOn }) {
   const cb = useCallback((upi) => onResult(upi), [onResult])
   return (
     <section className="screen">
-      <Steps at={0} labels={['Scan', 'Review', 'Match', 'Pay']} />
+      <Steps at={0} labels={protectedOn ? ['Scan', 'Review', 'Match', 'Pay'] : ['Scan', 'Post', 'Paid', 'Settle']} />
       <h1>Scan a UPI QR</h1>
       <p className="lede">Someone you trust pays it in rupees. You pay them back in sats.</p>
       <Scanner onResult={cb} />
+    </section>
+  )
+}
+
+function Confirm({ draft, signer, board, onBack, onPosted, onRequireIdentity }) {
+  const [inr, setInr] = useState(draft.inr ? String(draft.inr) : '')
+  const [price, setPrice] = useState(null)
+  const [satsIn, setSatsIn] = useState('')
+  const [mint, setMint] = useState(prefs.mint())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    inrPerBtc().then(setPrice)
+  }, [])
+
+  const amount = Number(inr)
+  const suggested = useMemo(() => inrToSats(amount, price), [amount, price])
+  const total = Number(satsIn) || suggested
+
+  async function post() {
+    if (!signer) return onRequireIdentity?.()
+    setBusy(true)
+    setError('')
+    try {
+      const m = mint.trim() || undefined
+      const t = offerEvent({
+        vpa: draft.vpa,
+        payee: draft.payee,
+        inr: amount,
+        sats: total,
+        mint: m,
+        note: draft.note,
+      })
+      const signed = await signer.sign(t)
+      prefs.setMint(mint.trim())
+      await board.publish(signed)
+      onPosted(signed.id)
+    } catch (e) {
+      setError(e.message.replace('invalid event: ', 'Check the '))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="screen">
+      <Steps at={1} labels={['Scan', 'Post', 'Paid', 'Settle']} />
+      <p className="hint">Public offer — no escrow. Protected trades open once the pilot is configured.</p>
+      <div className="card payee">
+        <div className="avatar">{(draft.payee || draft.vpa)[0].toUpperCase()}</div>
+        <div>
+          <div className="big">{draft.payee || 'UPI payee'}</div>
+          <div className="mono dim">{draft.vpa}</div>
+        </div>
+      </div>
+
+      <label className="field">
+        <span>Amount</span>
+        <div className="amount">
+          <span>₹</span>
+          <input
+            inputMode="decimal"
+            value={inr}
+            onChange={(e) => setInr(e.target.value)}
+            placeholder="0"
+            autoFocus={!draft.inr}
+          />
+        </div>
+      </label>
+
+      <label className="field">
+        <span>You pay back</span>
+        <div className="amount small">
+          <input
+            inputMode="numeric"
+            value={satsIn}
+            onChange={(e) => setSatsIn(e.target.value.replace(/\D/g, ''))}
+            placeholder={suggested ? String(suggested) : 'sats'}
+          />
+          <span>sats</span>
+        </div>
+        <small className="dim">
+          {price
+            ? `At ${rupees(Math.round(price))}/BTC. Add a little extra to get picked faster.`
+            : 'Price unavailable, enter sats yourself.'}
+        </small>
+      </label>
+
+      <label className="field">
+        <span>Your Cashu mint (optional)</span>
+        <input
+          value={mint}
+          onChange={(e) => setMint(e.target.value)}
+          placeholder="https://mint.minibits.cash/Bitcoin"
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="url"
+        />
+        <small className="dim">
+          Shown on the offer so people know where the ecash comes from. Only the URL is public.
+        </small>
+      </label>
+
+      {error && <p className="hint warn">{error}</p>}
+      <div className="actions">
+        <button className="btn ghost" onClick={onBack}>
+          Back
+        </button>
+        <button className="btn primary" disabled={busy || !(amount > 0) || !(total > 0)} onClick={post}>
+          {busy ? 'Posting…' : `Post for ${amount > 0 ? rupees(amount) : '₹0'}`}
+        </button>
+      </div>
+      <p className="fine">
+        Posted to public Nostr relays. Your web of trust sees it first. No sats move until you send them.
+      </p>
     </section>
   )
 }
