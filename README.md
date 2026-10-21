@@ -1,6 +1,6 @@
 # Current revenue policy: voluntary support
 
-New trades have no mandatory platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. A donation recipient is optional and never a trading prerequisite. Mint/network costs still apply. Earlier signed fee-bearing agreements retain their original validation and recovery paths; new acceptance requires the current zero-fee terms. Fee collection descriptions below refer to those older agreements.
+There is no platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement.
 
 <div align="center">
 
@@ -29,13 +29,12 @@ This is a hackathon prototype for signed payment coordination. It does not verif
 This branch implements private quotes, payer advertisements, immutable agreements and a Cashu escrow adapter. **Real mint operations default to disabled** until deployment configuration and provider integration checks pass. No custom backend is introduced.
 
 - Browse first; Pay a QR / Earn sats / My trades. Dismissible example, opt-in camera, image and manual UPI entry. Older public offers are collapsed separately.
-- Fixed or market-linked prices, unrestricted premiums and discounts, trust/history ranking and mint filters. Both people accept exact amounts before funding.
+- Fixed or market-linked prices, unrestricted premiums and discounts, trust/history ranking and mint filters. The payer signs the exact terms; the requester accepts by funding escrow. Late or declined escrow is refund-only.
 - Signed private messages inside Nostr gift wraps; public advertisements exclude VPA, payee and QR details. Private agreements and operation journals are encrypted in IndexedDB.
 - Permanent requester/payer/arbitrator 2-of-3 Cashu locks with SIG_ALL output binding, DLEQ validation, release/refund/mutual split, exact-request retries, recipient payout verification and collection for an external Cashu wallet.
-- A separate 1% requester fee, rounded up, locked to the configured fee recipient and bound to the agreement. Manual fee-refund request and operator case export.
 - Three-host encrypted Blossom backups, two verified copies before consuming operations, two verified relay pointers for discovery, automatic repair while open, and recovery from an older downloaded kit.
 
-Copy [.env.example](.env.example) to .env to configure public arbitrator and fee-recipient keys. Keep mint operations disabled until the [release gates and limitations](docs/client-marketplace-v1.md) are addressed. Tests use an in-process mint and storage fixtures, not real funds. Public Nostr history is not proof of a UPI payment. Reviewed reputation penalties and production operator processes remain release work.
+Copy [.env.example](.env.example) to .env to configure public arbitrator keys. Keep mint operations disabled until the [release gates and limitations](docs/client-marketplace-v1.md) are addressed. Tests use an in-process mint and storage fixtures, not real funds. Public Nostr history is not proof of a UPI payment. Reviewed reputation penalties and production operator processes remain release work.
 
 A device identity is currently required for private trade signing and storage. The local identity key remains in browser storage; encryption does not protect against a compromised browser or same-origin script. The recovery kit contains its secret and must be protected like a private key. External signers can browse; their private escrow integration is not implemented.
 

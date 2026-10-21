@@ -1,45 +1,57 @@
-# Current revenue policy: voluntary support
+# Private marketplace (protocol v3) and release gates
 
-New trades have no mandatory platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. A donation recipient is optional and never a trading prerequisite. Mint/network costs still apply. Earlier signed fee-bearing agreements retain their original validation and recovery paths; new acceptance requires the current zero-fee terms. Fee collection descriptions below refer to those older agreements.
+Updated 21 October 2026. This branch implements a client-only protected-trade protocol and UI. It is not approved for production money. Nostr relays, Cashu mints and Blossom storage are external servers; there is no custom application backend.
 
-# Private marketplace implementation and release gates
+There is no platform fee and no fee recipient. Optional zaps are offered through the Nostr profile configured in `VITE_SUPPORT_NPUB`, separately from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement. Protocol v3 replaced the earlier v2 drafts; v2 agreements were never enabled for real funds and are not accepted.
 
-Updated 20 October 2026. This branch implements a client-only protected-trade protocol and UI. It is not approved for production money. Nostr relays, Cashu mints and Blossom storage are external servers; there is no custom application backend.
+## How a protected trade works
+
+1. A payer advertises an amount range, price and mint. A requester advertises a QR job. Only amount/rate, mint, availability and identity are public.
+2. The requester sends a private quote request. For a payer advertisement it includes the merchant's UPI destination; for a QR job the requester's own proposal carries it.
+3. **The payer commits by signing the exact terms.** When the payer built the proposal, the proposal is the payer's signed commitment. When the requester built it, the payer signs an `accept` that references that proposal. Either is valid for five minutes.
+4. **The requester commits by funding.** "Accept & fund" locks escrow at the mint and sends a `funding` notice that references the payer's commitment. There is no separate requester accept.
+5. The payer verifies the escrow at the mint, then pays the merchant via UPI and reports it. The requester confirms merchant credit.
+6. Both sign the exact payout and either submits it to the mint. The recipient verifies and collects.
+
+Every trade message after the proposal names the message it answers (`payload.re`): accept → proposal, funding → payer commitment, payment report and decline → funding. Status follows those signed references, not sender-chosen timestamps.
+
+## Deadlines and late or declined escrow
+
+- Each device records when it first received every message. A message meets a deadline only if both its signed time and its local arrival time are within the deadline plus a 60-second grace, so a backdated message cannot slip in late.
+- Funding must arrive within two minutes of the payer's commitment (plus grace).
+- Escrow that arrives late, or that reaches a payer already committed to another trade, is declined with a signed `escrow-declined` message. A payer may also decline any funded escrow before starting payment. Declined escrow never invites a UPI payment, frees the payer's slot, and can only be refunded in full to the requester; both sides see the same signed decline.
+- A payer's commitment pauses their advertisements and reserves their slot until on-time funding can no longer arrive. Funded and disputed trades hold the slot.
 
 ## Implemented
 
-- Browse-first Pay a QR, Earn sats and My trades. A removable example is remembered in this browser and can be reopened through How it works. Camera starts only after an explicit action. Legacy public offers remain in a collapsed section.
-- Versioned payer advertisements and QR jobs. Public fields are restricted to amount/rate, mint, availability and identity. Private signed quote requests and agreements use Nostr gift wraps and discovered kind-10050 inboxes. Private messages are not published in plaintext.
-- Fixed and market-linked rates with unrestricted premiums/discounts. Recommended ranking uses the existing relationship/history score; mint and relationship filters remain available. Price sorting is an estimate including the 1% service fee; negotiated mint costs appear in the accepted agreement.
-- Immutable hashed agreements: parties, mint, destination, amount, three escrow keys, fee recipient and allowances. Five-minute quote lifetime, two-minute funding window after both accept. Payer acceptance pauses its advertisements and checks other locally known reservations, which last until on-time funding can no longer arrive. Escrow whose signed funding notice is more than a minute past the window, or that reaches a payer already committed to another trade, is refund-only: it never invites a UPI payment and does not hold the payer's slot. Disputes occupy the active slot. Listings must be reopened manually after completion.
-- A permanent 2-of-3 requester/payer/arbitrator Cashu P2PK lock. SIG_ALL binds signatures to the exact outputs. Funding is checked with DLEQ and mint proof states. Mint discovery requires NUT-7/11/12/19 and sat units. The adapter prepares transactions before submitting them and preserves output blinding material for exact retries.
-- Release, refund and mutual split proposals, with recipient-only payout locks. The official client requires both participants for splits and prevents signing a different payout after signing once, even if a peer reuses its revision ID. Recipients verify redeemed escrow and payout proofs before collecting an ordinary Cashu token for their external wallet. Collection fees require a separate confirmation.
-- A separate 1% requester service fee rounded up, no minimum. Fee proof secrets include the agreement hash and are locked to its recipient. Fee receipts and retry IDs are persisted. The UI can request a manual refund and the fee desk can download private cases for review; it does not automatically grant or pay refunds.
-- UPI status reports, merchant confirmation, cancellation requests/agreements, private evidence, dispute escalation and post-release follow-up cases. An arbitrator can receive a case, verify funding, import the exact agreed escrow key and propose/sign a resolution. Neither elapsed time nor a screenshot moves funds. Inconclusive cases remain locked; no admin can replace a signing key.
-- Encrypted IndexedDB private records with revision compare-and-set. Web Locks serialize local money operations across tabs. Durable private outboxes retain the same signed event and encrypted wrap on retries. Public history retains its existing verified-event journal.
-- AES-256-GCM recovery snapshots include private keys, proofs, signatures, terms, blinding material and in-flight operations. Three distinct Blossom hosts receive identical encrypted bytes, verified by full readback and SHA-256. Two verified copies of the exact operation are required before mint spending. Acceptance and payout signatures are backed up before delivery.
-- Encrypted append-only recovery pointers are signed and read back from two distinct relay hosts before an operation proceeds. After restoring a downloaded identity/recovery kit, the app can discover and decrypt the latest available snapshot, preserving higher record revisions. Repair runs every minute and on reconnect while the app is open. No repair runs while closed.
+- Browse-first Pay a QR, Earn sats and My trades. Until protected trading is configured, scanning a QR posts a public no-escrow offer and the marketplace stays hidden.
+- Signed trade messages use dedicated kind 3406 and travel only inside NIP-17 gift wraps addressed to kind-10050 inboxes, so a republished message never renders as a social post. Recovery pointers use kind 3407.
+- Fixed and market-linked rates with integer paise/sats arithmetic. Recommended ranking uses the existing relationship/history score with mint and relationship filters.
+- Immutable hashed agreements: parties, mint, destination, amount, three escrow keys and mint-cost allowances.
+- A permanent 2-of-3 requester/payer/arbitrator Cashu P2PK lock with SIG_ALL bound to the exact outputs. Funding is checked with DLEQ and mint proof states. Funding tokens are decoded by the mint's wallet so v4 short keyset ids resolve.
+- Release, refund and mutual split proposals with recipient-only payout locks. The official client requires both participants for splits and refuses to sign a different payout after signing once.
+- Lost swap responses: every consuming swap goes through one recovery adapter. Unspent inputs allow the identical saved swap to be retried; pending or partly spent inputs keep the operation uncertain; fully spent inputs trigger NUT-09 restoration of the exact saved outputs, rejecting missing, extra, duplicated, substituted or DLEQ-invalid signatures, including under rotated keysets.
+- Encrypted IndexedDB records with revision compare-and-set, Web Locks across tabs, and durable outboxes that resend the same wrap.
+- AES-256-GCM recovery snapshots replicated to three Blossom hosts with full readback. Two verified copies of the exact operation are required before any mint spend or payout signature.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects with `name`, a 64-character Nostr public key (`pubkey`), and a 66-character compressed Cashu key (`escrowKey`). Set `VITE_SUPPORT_NPUB` to the public Nostr profile for optional support. `VITE_FEE_RECIPIENT` is only used to reconcile older fee-bearing agreements. Never put private keys in Vite configuration. Operators must enable their private inboxes.
+Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects with `name`, a 64-character Nostr public key (`pubkey`) and a 66-character compressed Cashu key (`escrowKey`). Operators must enable their private inboxes. Never put private keys in Vite configuration.
 
-`VITE_PROTECTED_TRADES_ENABLED` defaults to false. Agreement creation requires valid panel configuration; consuming mint calls additionally require the enable flag. Users configure three independently operated HTTPS Blossom origins, download a recovery kit, and acknowledge saving it outside the browser before accepting trades.
+`VITE_PROTECTED_TRADES_ENABLED` defaults to false. Agreement creation requires a valid panel; consuming mint calls additionally require the flag. `VITE_RESTORE_VERIFIED_MINTS` lists mints whose lost-response restoration passed a live test.
+
+A mint qualifies by caching `POST /v1/swap` indefinitely (NUT-19 `ttl: null`) or, with finite or no caching, by advertising NUT-09 and being listed in `VITE_RESTORE_VERIFIED_MINTS`. Run `npm run check:mint -- https://your-mint.example` first; it is read-only.
 
 ## Limits and remaining release work
 
-1. **Provider integration:** no production mint, arbitrator or fee recipient was supplied. The automated mint is an in-process cryptographic fixture, not evidence of compatibility with a deployed mint. Validate NUT-19 retry retention, P2PK custom tags, fees, mint key rotation, expired cache recovery, outage recovery, supported amounts and browser CORS against the chosen providers. A mint remains a custodial dependency.
-2. **Operator service:** the panel's availability, support contact, response policy, fee collection wallet and manual refund process must be established. The fee desk currently exports cases; automatic fee redemption/refund is not implemented. If fee transfer succeeds and funding fails, principal/change remain in the saved operation, and a manual service-fee refund is necessary. The fee is not enforceable against modified clients.
-3. **Reputation:** existing history is participant-reported and can be collusive. Pending complaints do not incur misconduct penalties. Authenticated reviewed-outcome reputation, appeals and anti-abuse weighting are not implemented. Private case outcomes are not silently made public.
-4. **Client coordination:** local locks and observed reservations cannot enforce a global one-trade limit across devices, modified clients or hidden relay events. Peers must reconcile outstanding operations before accepting another quote. A pending mint operation is not automatically abandoned or treated as a cancellation.
-5. **Device key security:** private escrow currently requires a device identity. Its secret is still stored in localStorage; encrypted IndexedDB protects against casual plaintext storage exposure, not same-origin XSS, malicious extensions or device compromise. External signer support is browse-only for this protocol. Complete a dedicated security review before enabling live funds.
-6. **Recovery:** different hostnames do not prove different operators or retention guarantees. Relay pointers and blobs can all disappear. The recovery kit holds identity and recovery secrets and must remain private. Losing both the kit and device can make recovery impossible. Restoring an older kit without finding newer remote state requires reconciliation before another signature. Large case histories may exceed relay message limits and need a bounded attachment/chunk protocol.
-7. **India/device launch:** real Android/iOS UPI handoff, QR/image/camera, pending payments, merchant confirmation, reversals and arbitration evidence workflows need device testing. The app cannot independently verify bank settlement. India-specific operating, tax and legal requirements still need qualified review before launch.
+1. **Provider integration:** the automated mint is an in-process cryptographic fixture, not evidence of compatibility with a deployed mint. Validate restoration, fees, key rotation, outages and browser CORS against the chosen mint. A mint remains a custodial dependency.
+2. **Stuck escrow:** the lock is permanent. Lost keys or an unavailable arbitrator during a dispute leave funds locked. A long timelock refund is planned.
+3. **Reputation:** existing history is participant-reported and can be collusive. Mutual completion attestations and reviewed outcomes are not implemented.
+4. **Client coordination:** local locks and observed reservations cannot enforce a global one-trade limit across devices or modified clients.
+5. **Device key security:** private escrow requires a device identity whose secret is in localStorage. External signers can browse only. Complete a security review before live funds.
+6. **Recovery:** different hostnames do not prove different operators. Each backup re-uploads the whole private store. Losing both the kit and device can make recovery impossible.
+7. **India/device launch:** real Android/iOS UPI handoff, pending payments, reversals and arbitration workflows need device testing, and operating, tax and legal requirements need qualified review.
 
 ## Validation
 
-Run `npm ci`, `npm test` and `npm run build`. On restricted Windows installations, set TEMP and TMP to a writable workspace `.tmp` directory before Vitest.
-
-Tests exercise real Cashu blind signatures and DLEQ in an in-process mint, single-signature rejection, exact request replay, recipient output binding, immutable signing fingerprints, release/refund/split, fee binding, payout verification/collection, encrypted message isolation, IndexedDB conflicts, and remote recovery with a Blossom host unavailable. They reject stale/wrong-operation/same-host backup receipts and missing recovery-index readback. They do not substitute for the provider and device checks above.
-
-Production mint check: run npm run check:mint -- https://your-mint.example. Every consuming swap (funding, legacy fee, payout, collection) goes through one recovery adapter. If a response is lost, it checks the inputs with NUT-07: unspent inputs mean the identical saved swap can be retried; pending or partly spent inputs keep the operation uncertain; fully spent inputs trigger NUT-09 restoration of the exact saved blinded outputs, rejecting missing, extra, duplicated, substituted or DLEQ-invalid signatures, including under rotated keysets. A mint qualifies by caching POST /v1/swap indefinitely (NUT-19 ttl:null), or, for finite or no caching, by advertising NUT-09 and being listed in VITE_RESTORE_VERIFIED_MINTS after a controlled live lost-response test. Advertised metadata alone never qualifies a finite-cache mint. Recovery refuses to fall back past a newer signed backup pointer when its blob is unavailable, because doing so could lose a previously sent signature.
+Run `npm ci`, `npm test` and `npm run build`. Tests exercise real Cashu blind signatures and DLEQ in an in-process mint, and drive two complete marketplace instances (requester and payer) over a simulated relay network: offer → accept-and-fund → UPI → two-signature release → collection, payer decline → refund, and a refused second payer commitment. They do not substitute for the provider and device checks above.

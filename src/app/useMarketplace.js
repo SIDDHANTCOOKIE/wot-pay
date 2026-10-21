@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, MARKET_TAG, LISTING_KIND } from '../marketplace/protocol.js'
+import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, viewOf, MARKET_TAG, LISTING_KIND, QUOTE_LIFETIME } from '../marketplace/protocol.js'
 import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
-import { feeBreakdown, TERMS_VERSION } from '../marketplace/pricing.js'
+import { TERMS_VERSION } from '../marketplace/pricing.js'
 import { marketplaceConfig, assertDeploymentAgreement } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
 import { connectMint, prepareFunding, completeFunding, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
-import { prepareFee, completeFee, verifyFeeProofs } from '../marketplace/fees.js'
 import { backupOperation, syncPrivateBackup } from '../marketplace/backup.js'
 import { requireFreeSlot, validateResolution, payerCommitted } from '../marketplace/protocol.js'
-import { getDecodedToken, getEncodedToken, getPubKeyFromPrivKey } from '@cashu/cashu-ts'
+import { getEncodedToken, getPubKeyFromPrivKey } from '@cashu/cashu-ts'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { resolutionFingerprint, verifyPayout, prepareClaim, completeClaim } from '../marketplace/escrow.js'
 
@@ -57,14 +56,10 @@ export function useMarketplace(client, signer) {
           const events=message.payload.events
           if(!Array.isArray(events)||events.length>200||events.some(e=>!parsePrivate(e)||parsePrivate(e).agreementId!==message.agreementId))return
           const view=tradeView(a,message.agreementId,events)
-          if(!view.accepted||!view.dispute)return
+          if(!view.offered||!view.dispute)return
           const existing=await vault.read(`trade:${message.agreementId}`)
           const merged=[...new Map([...(existing?.value.events||[]),...events].map(e=>[e.id,e])).values()]
           await vault.write(`trade:${message.agreementId}`,{...existing?.value,kind:'trade',agreement:a,events:merged,evidence:existing?.value.evidence||{}},existing?.revision||0)
-        } else if(message.action==='fee-payment'||message.action==='fee-refund-request') {
-          const a=validateAgreement(message.payload.agreement)
-          if(a.feeRecipient!==signer.pubkey||a.requester!==message.pubkey||await contentHash(a)!==message.agreementId)return
-          if(!await vault.read(`fee:${signed.id}`))await vault.write(`fee:${signed.id}`,{kind:'fee-inbox',event:signed})
         } else if(message.action==='quote-request') {
           const listing=parseListing(message.payload.listing)
           if(!listing || listing.pubkey!==signer.pubkey || message.pubkey===signer.pubkey)return
@@ -83,11 +78,12 @@ export function useMarketplace(client, signer) {
           // Compare semantic destination fields, independent of JSON ordering.
           if(listing.type==='payer-listing'&&(a.requester!==signer.pubkey||a.payer!==message.pubkey||['vpa','payee','note'].some(k=>a.destination[k]!==original.payload.destination?.[k])))return
           if(listing.type==='qr-request'&&(a.payer!==signer.pubkey||a.requester!==message.pubkey))return
-          if(!await vault.read(`trade:${message.agreementId}`))await vault.write(`trade:${message.agreementId}`,{kind:'trade',agreement:a,escrowKey:request.value.escrowKey,events:[signed],evidence:{}})
+          // Arrival time on this device bounds deadlines a sender could backdate.
+          if(!await vault.read(`trade:${message.agreementId}`))await vault.write(`trade:${message.agreementId}`,{kind:'trade',agreement:a,escrowKey:request.value.escrowKey,events:[signed],received:{[signed.id]:Math.floor(Date.now()/1000)},evidence:{}})
         } else {
           const row=await vault.read(`trade:${message.agreementId}`)
           if(!row || ![row.value.agreement.requester,row.value.agreement.payer,row.value.agreement.arbitrator].includes(message.pubkey) || row.value.events.some(e=>e.id===signed.id))return
-          await vault.write(row.id,{...row.value,events:[...row.value.events,signed]},row.revision)
+          await vault.write(row.id,{...row.value,events:[...row.value.events,signed],received:{...row.value.received,[signed.id]:Math.floor(Date.now()/1000)}},row.revision)
         }
         if(live)await reload()
       }).catch(e=>setError(e.message))
@@ -125,6 +121,15 @@ export function useMarketplace(client, signer) {
     await vault.write(`request:${requestId}`,{kind:'request',incoming:false,request:signed,listing,escrowKey})
     await deliverPrivate({client,signer,vault,to:listing.pubkey,signed});await reload()
   }
+  // A payer commits by signing exact terms; first pause advertisements and
+  // refuse a second commitment while another trade can still be funded.
+  async function commitAsPayer(exceptId) {
+    if(payerCommitted(signer.pubkey,await vault.snapshot(),exceptId))throw new Error('Finish or expire your existing accepted trade before accepting another.')
+    for(const r of await vault.snapshot())if(r.value.kind==='listing') {
+      const listing=JSON.parse(r.value.signed.content)
+      if(listing.type==='payer-listing'&&listing.available)await publishListing({...listing,available:false})
+    }
+  }
   async function propose(requestRow,payerSats,fundingFeeSats=0,releaseFeeSats=0) {
     if(!config.ready)throw new Error('Configure the arbitrator panel before creating an agreement.')
     requestRow=await vault.read(requestRow.id)
@@ -135,109 +140,97 @@ export function useMarketplace(client, signer) {
     const latest=localListing&&parseListing(localListing.value.signed)
     if(!latest?.available)throw new Error('Your listing is no longer available.')
     const requester=listing.type==='payer-listing'?request.pubkey:signer.pubkey,payer=requester===signer.pubkey?request.pubkey:signer.pubkey
-    const escrowKey=createEscrowKey(),ownRole=requester===signer.pubkey?'requester':'payer',otherRole=ownRole==='requester'?'payer':'requester'
+    const escrowKey=createEscrowKey(),ownRole=requester===signer.pubkey?'requester':'payer'
     const panel=config.panel.find(p=>![requester,payer].includes(p.pubkey))
     if(!panel)throw new Error('No independent arbitrator is configured.')
+    // A payer's proposal is also the payer's acceptance of these exact terms.
+    if(ownRole==='payer')await commitAsPayer(null)
     const now=Math.floor(Date.now()/1000)
-    const agreement=validateAgreement({v:2,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,serviceFeeSats:feeBreakdown(payerSats).serviceFeeSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,feeRecipient:null,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+300})
-    const id=await contentHash(agreement),signed=await signer.sign(privateTemplate(id,'proposal',{agreement,requestId:request.agreementId}))
-    await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],evidence:{}})
+    const agreement=validateAgreement({v:3,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+QUOTE_LIFETIME})
+    const id=await contentHash(agreement),signed=await signer.sign(privateTemplate(id,'proposal',{agreement,requestId:request.agreementId},now))
+    await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],received:{[signed.id]:now},evidence:{}})
     await vault.write(requestRow.id,{...requestRow.value,proposal:signed},requestRow.revision)
     await deliverPrivate({client,signer,vault,to:request.pubkey,signed});await reload()
   }
+  const own=(row,signed)=>({events:[...row.value.events,signed],received:{...row.value.received,[signed.id]:signed.created_at}})
   async function action(row,action,payload={}) {
-    const fresh=await vault.read(row.id),a=fresh.value.agreement,id=row.id.slice(6),view=tradeView(a,id,fresh.value.events,fresh.value.evidence)
+    const fresh=await vault.read(row.id),a=fresh.value.agreement,view=viewOf(fresh,clock)
     const me=signer.pubkey
     if(![a.requester,a.payer].includes(me))throw new Error('Only participants can perform this action.')
-    if(action==='accept'&&(clock>a.quoteExpiresAt||!inbox))throw new Error('Quote expired or private inbox is not ready.')
-    if(action==='accept'&&a.termsVersion!==TERMS_VERSION)throw new Error('Request a new quote with no platform fee before accepting.')
-    if(action==='accept')assertDeploymentAgreement(config,a)
-    if(action==='accept'&&me===a.payer) {
-      if(payerCommitted(me,await vault.snapshot(),row.id))throw new Error('Finish or expire your existing accepted trade before accepting another.')
-      for(const r of await vault.snapshot())if(r.value.kind==='listing') {
-        const listing=JSON.parse(r.value.signed.content)
-        if(listing.type==='payer-listing'&&listing.available)await publishListing({...listing,available:false})
-      }
+    if(action==='accept') {
+      if(me!==a.payer||!view.needsPayerAccept||!inbox)throw new Error('Quote expired, already accepted, or private inbox is not ready.')
+      assertDeploymentAgreement(config,a)
+      await commitAsPayer(row.id)
+      payload={...payload,re:view.proposal.id}
     }
-    if(action==='payment-report'&&(me!==a.payer||!view.funded||view.completed||payload.status==='started'&&!view.canPay))throw new Error('Verified, undisputed funding is required before starting payment.')
+    if(action==='payment-report') {
+      if(me!==a.payer||!view.funded||view.completed||payload.status==='started'&&!view.canPay)throw new Error('Verified, undisputed funding is required before starting payment.')
+      payload={...payload,re:view.notice.id}
+    }
+    if(action==='escrow-declined') {
+      if(me!==a.payer||!view.notice||view.paymentStarted||view.declined)throw new Error('Only unpaid escrow can be declined.')
+      payload={...payload,re:view.notice.id}
+    }
     if(action==='merchant-confirmed'&&(me!==a.requester||!view.funded||view.completed))throw new Error('Cannot confirm merchant credit at this stage.')
     if(action==='follow-up'&&!view.completed)throw new Error('Follow-up cases are for completed trades.')
-    if(['cancel-request','cancel-agree','dispute','evidence'].includes(action)&&(!view.accepted||view.completed))throw new Error('This action requires an active accepted trade.')
-    const signed=await signer.sign(privateTemplate(id,action,payload))
-    // Delivery is durable and retryable; own accepted intent is saved before sending.
-    await vault.write(row.id,{...fresh.value,events:[...fresh.value.events,signed]},fresh.revision)
-    if(action==='accept')await backupOperation(vault,signer,{kind:'acceptance',agreementId:id,event:signed},fetch,client)
-    await deliverPrivate({client,signer,vault,to:me===a.requester?a.payer:a.requester,signed});await reload()
+    if(['cancel-request','cancel-agree','dispute','evidence'].includes(action)&&(!view.offered||view.completed))throw new Error('This action requires an active accepted trade.')
+    const signed=await signer.sign(privateTemplate(row.id.slice(6),action,payload))
+    // Delivery is durable and retryable; own intent is saved before sending.
+    await vault.write(row.id,{...fresh.value,...own(fresh,signed)},fresh.revision)
+    for(const to of [a.requester,a.payer,...(view.dispute?[a.arbitrator]:[])].filter(pk=>pk!==me))await deliverPrivate({client,signer,vault,to,signed})
+    await reload()
   }
   const listings=currentListings([...publicEvents.values()],clock)
-  const trades=records.filter(r=>r.value.kind==='trade').map(row=>({...row,view:tradeView(row.value.agreement,row.id.slice(6),row.value.events,row.value.evidence,clock)}))
+  const trades=records.filter(r=>r.value.kind==='trade').map(row=>({...row,view:viewOf(row,clock)}))
   const save=async(row,patch)=>vault.write(row.id,{...row.value,...patch},row.revision)
   const sendTrade=async(row,action,payload)=>{
     const a=row.value.agreement,signed=await signer.sign(privateTemplate(row.id.slice(6),action,payload))
-    const next=await save(row,{events:[...row.value.events,signed]})
-    const disputed=tradeView(a,row.id.slice(6),row.value.events,row.value.evidence).dispute
+    const disputed=viewOf(row).dispute
+    const next=await save(row,own(row,signed))
     for(const to of [a.requester,a.payer,...(disputed?[a.arbitrator]:[])].filter(pk=>pk!==signer.pubkey))await deliverPrivate({client,signer,vault,to,signed})
     return next
   }
+  // The requester accepts by funding: the notice references the payer's
+  // signed commitment, and the saved swap is completed exactly once.
   async function fund(row,token) {
     if(!config.protectedEnabled)throw new Error('Real mint operations are disabled until deployment integration checks pass.')
     row=await vault.read(row.id)
-    const a=row.value.agreement,id=row.id.slice(6),view=tradeView(a,id,row.value.events,row.value.evidence)
+    const a=row.value.agreement,view=viewOf(row)
     if(signer.pubkey!==a.requester)throw new Error('Only the requester funds this agreement.')
     assertDeploymentAgreement(config,a)
     if(row.value.evidence.funding?.verified)throw new Error('Already funded. Retry pending messages instead of funding again.')
-    if(!view.canFund&&!row.value.fundingOperation&&!row.value.feeOperation)throw new Error('Funding window closed or agreement unavailable.')
-    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const view=tradeView(r.value.agreement,r.id.slice(6),r.value.events,r.value.evidence);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...view,occupiesSlot:view.occupiesSlot||!!(r.value.feeOperation||r.value.fundingOperation)&&!view.completed}}})
-    requireFreeSlot(a.payer,latestTrades,id)
+    if(!view.offered||!view.canFund&&!row.value.fundingOperation)throw new Error('Funding window closed or the payer has not committed.')
+    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const v=viewOf(r);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...v,occupiesSlot:v.occupiesSlot||!!r.value.fundingOperation&&!v.completed}}})
+    requireFreeSlot(a.payer,latestTrades,row.id.slice(6))
     const wallet=await mintFor(a)
     const backup=operation=>backupOperation(vault,signer,operation,fetch,client)
-    const acceptance=row.value.events.find(e=>e.pubkey===signer.pubkey&&parsePrivate(e)?.action==='accept')
-    if(!acceptance)throw new Error('Your signed acceptance is missing.')
-    await backup({kind:'acceptance',agreementId:id,event:acceptance})
-    await deliverPrivate({client,signer,vault,to:a.payer,signed:acceptance})
-    if(a.serviceFeeSats>0) {
-    if(!row.value.feeResult) {
-      // Discover the collector before any fee proofs are consumed.
-      if(!inboxRelays(await client.queryIdentity({kinds:[10050],authors:[a.feeRecipient]}),a.feeRecipient).length)throw new Error('Fee recipient inbox is not ready.')
-      if(!row.value.feeOperation) {
-        const decoded=getDecodedToken(token)
-        if(decoded.mint.replace(/\/$/,'')!==a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.')
-        row=await save(row,{feeOperation:await prepareFee(wallet,a,decoded.proofs)})
-      }
-      const feeResult=await completeFee(wallet,a,row.value.feeOperation,backup)
-      row=await save(row,{feeResult})
-    }
-    if(!row.value.feeEvent)row=await save(row,{feeEvent:await signer.sign(privateTemplate(id,'fee-payment',{agreement:a,proofs:row.value.feeResult.send}))})
-    const feeEvent=row.value.feeEvent
-    await deliverPrivate({client,signer,vault,to:a.feeRecipient,signed:feeEvent})
-    }
     if(!row.value.fundingOperation) {
-      let inputs=row.value.feeResult?.keep
-      if(a.serviceFeeSats===0) {const decoded=getDecodedToken(token);if(decoded.mint.replace(/\/$/,'')!==a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.');inputs=decoded.proofs}
-      row=await save(row,{fundingOperation:await prepareFunding(wallet,a,inputs)})
+      // v4 tokens carry short keyset ids that only the mint's wallet can expand.
+      const decoded=wallet.decodeToken(token.trim())
+      if(decoded.mint.replace(/\/$/,'')!==a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.')
+      row=await save(row,{fundingOperation:await prepareFunding(wallet,a,decoded.proofs)})
     }
-    // Fee-transfer plus funding costs share the agreed allowance.
-    if(Number(row.value.feeOperation?.preview.fees||0)+Number(row.value.fundingOperation.preview.fees)>a.fundingFeeSats)throw new Error('Combined funding fees exceed the accepted allowance. Request a manual service-fee refund; do not re-fund.')
     const result=await completeFunding(wallet,a,row.value.fundingOperation,backup)
-    row=await save(row,{proofs:result.send,change:result.keep,evidence:{...row.value.evidence,funding:result.funding,feeVerified:true}})
-    await sendTrade(row,'funding',{proofs:result.send,...(a.serviceFeeSats>0?{feeProofs:row.value.feeResult.send}:{})})
+    row=await save(row,{proofs:result.send,change:result.keep,evidence:{...row.value.evidence,funding:result.funding}})
+    await sendTrade(row,'funding',{proofs:result.send,re:view.acceptance.id})
     await reload()
   }
+  // Escrow that arrives late, or after the payer committed elsewhere, is
+  // declined with a signed message so both sides agree it is refund-only.
   async function verifyIncomingFunding(row) {
     row=await vault.read(row.id)
-    const a=row.value.agreement
-    const message=row.value.events.map(parsePrivate).filter(e=>e?.action==='funding'&&e.pubkey===a.requester).at(-1)
-    if(!message)throw new Error('No funding proof has arrived.')
+    const a=row.value.agreement,view=viewOf(row)
+    if(!view.notice)throw new Error('No funding proof has arrived for this agreement.')
     const wallet=await mintFor(a)
-    const funding=await verifyFunding(wallet,a,message.payload.proofs)
-    if(a.serviceFeeSats>0)await verifyFeeProofs(wallet,a,message.payload.feeProofs)
-    // Funding that reaches a payer already committed to another trade is refund-only.
-    if(signer.pubkey===a.payer&&payerCommitted(a.payer,await vault.snapshot(),row.id))funding.late=true
-    await save(row,{proofs:message.payload.proofs,evidence:{...row.value.evidence,funding,feeVerified:true}});await reload()
+    const funding=await verifyFunding(wallet,a,view.notice.payload.proofs)
+    row=await save(row,{proofs:view.notice.payload.proofs,evidence:{...row.value.evidence,funding}})
+    if(signer.pubkey===a.payer&&!view.declined&&(view.lateNotice||payerCommitted(a.payer,await vault.snapshot(),row.id)))
+      await sendTrade(row,'escrow-declined',{re:view.notice.id,reason:view.lateNotice?'Escrow arrived after the funding window.':'Payer had already committed to another trade.'})
+    await reload()
   }
   async function proposeResolution(row,allocation) {
     row=await vault.read(row.id)
-    const a=row.value.agreement,view=tradeView(a,row.id.slice(6),row.value.events,row.value.evidence)
+    const a=row.value.agreement,view=viewOf(row)
     validateResolution(a,view,allocation,signer.pubkey)
     const wallet=await mintFor(a),operation=await prepareResolution(wallet,a,row.value.proofs,allocation)
     row=await save(row,{resolutionOperation:operation})
@@ -245,7 +238,7 @@ export function useMarketplace(client, signer) {
   }
   async function approveResolution(row,operation) {
     row=await vault.read(row.id)
-    const a=row.value.agreement,view=tradeView(a,row.id.slice(6),row.value.events,row.value.evidence)
+    const a=row.value.agreement,view=viewOf(row)
     validateResolution(a,view,operation.allocation,signer.pubkey)
     const fingerprint=await resolutionFingerprint(a,row.value.proofs,operation)
     if(row.value.signedResolutionFingerprint&&row.value.signedResolutionFingerprint!==fingerprint)throw new Error('You already signed a different payout. Reconcile it before signing another; signatures cannot be revoked.')
@@ -259,7 +252,7 @@ export function useMarketplace(client, signer) {
     if(!config.protectedEnabled)throw new Error('Mint settlement is disabled until deployment verification.')
     row=await vault.read(row.id)
     const wallet=await mintFor(row.value.agreement)
-    validateResolution(row.value.agreement,tradeView(row.value.agreement,row.id.slice(6),row.value.events,row.value.evidence),operation.allocation,signer.pubkey)
+    validateResolution(row.value.agreement,viewOf(row),operation.allocation,signer.pubkey)
     const result=await completeResolution(wallet,row.value.agreement,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
     row=await save(row,{payouts:result.payouts,evidence:{...row.value.evidence,redemption:result.redemption}})
     await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
@@ -289,7 +282,7 @@ export function useMarketplace(client, signer) {
   }
   async function escalate(row) {
     row=await vault.read(row.id)
-    const a=row.value.agreement,view=tradeView(a,row.id.slice(6),row.value.events,row.value.evidence)
+    const a=row.value.agreement,view=viewOf(row)
     if(!view.dispute)throw new Error('Report the dispute before sending a case.')
     const signed=await signer.sign(privateTemplate(row.id.slice(6),'case',{agreement:a,events:row.value.events}))
     await deliverPrivate({client,signer,vault,to:a.arbitrator,signed});await reload()
@@ -300,23 +293,15 @@ export function useMarketplace(client, signer) {
     if(a.arbitrator!==signer.pubkey||pubkey!==a.escrowKeys.arbitrator)throw new Error('Key does not match the agreed arbitrator.')
     await save(row,{escrowKey:{secret:secret.trim(),pubkey}});await reload()
   }
-  async function requestFeeRefund(row,reason) {
-    row=await vault.read(row.id)
-    const a=row.value.agreement
-    if(a.requester!==signer.pubkey||!row.value.feeResult)throw new Error('No service fee payment is recorded.')
-    const signed=await signer.sign(privateTemplate(row.id.slice(6),'fee-refund-request',{agreement:a,reason,events:row.value.events}))
-    await deliverPrivate({client,signer,vault,to:a.feeRecipient,signed});await reload()
-  }
   async function retry() {
     for(const row of await vault.snapshot()) {
       if(row.id.startsWith('outbox:')&&row.value.status==='pending')await deliverPrivate({client,signer,vault,to:row.value.to,signed:row.value.signed})
       if(row.value.kind==='listing'&&row.value.status==='pending') {await client.publish(row.value.signed);await vault.write(row.id,{...row.value,status:'published'},row.revision)}
       if(row.value.kind==='trade')for(const signed of row.value.events.filter(e=>e.pubkey===signer.pubkey)) {
-        const message=parsePrivate(signed),a=row.value.agreement
+        const a=row.value.agreement
         for(const to of [a.requester,a.payer].filter(pk=>pk!==signer.pubkey)) {
           const pending=await vault.read(`outbox:${signed.id}:${to}`)
           if(pending?.value.status==='delivered')continue
-          if(message.action==='accept'||message.action==='resolution-approve')await backupOperation(vault,signer,{kind:'message-retry',event:signed},fetch,client)
           await deliverPrivate({client,signer,vault,to,signed})
         }
       }
@@ -327,5 +312,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),requestFeeRefund:exclusive(requestFeeRefund)}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey)}
 }

@@ -20,7 +20,7 @@ export default function MarketplacePanel({ market, signer, board, mode = 'earn',
   const listings=market.listings.filter(l=>l.type===(mode==='pay'?'payer-listing':'qr-request')&&l.pubkey!==signer?.pubkey&&(!mintFilter||l.mint===mintFilter)&&(relationship!=='direct'||board.ranker.explain(l.pubkey).hops===1)).sort((a,b)=>sort==='newest'?b.created_at-a.created_at:sort==='cost'?(estimate(a)?.totalSats??Infinity)-(estimate(b)?.totalSats??Infinity):sort==='sats'&&a.type==='qr-request'?b.sats/b.paise-a.sats/a.paise:board.ranker.explain(b.pubkey).score-board.ranker.explain(a.pubkey).score||b.created_at-a.created_at)
   async function publish() {
     if(!requireAccount())return
-    const common={v:2,listingId:newRecoverySecret(),mint:httpsOrigin(mint),available:true,expiresAt:Math.floor(Date.now()/1000)+86400}
+    const common={v:3,listingId:newRecoverySecret(),mint:httpsOrigin(mint),available:true,expiresAt:Math.floor(Date.now()/1000)+86400}
     const listing=mode==='earn'?{...common,type:'payer-listing',minPaise:Number(decimalUnits(min)),maxPaise:Number(decimalUnits(max)),rateType,rate}:{...common,type:'qr-request',paise:Number(decimalUnits(amount)),sats:Number(bid)}
     if(mode==='pay'&&!destination?.vpa)throw new Error('Scan or paste a valid UPI QR first.')
     await market.publishListing(listing,mode==='pay'?destination:undefined);setEditing(false)

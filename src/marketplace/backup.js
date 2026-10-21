@@ -2,6 +2,11 @@ import { encryptBackup, digest, replicateBackup, recoveryServers, recoverRemote 
 import { verifyEvent } from 'nostr-tools/pure'
 import { contentHash } from './protocol.js'
 
+// Encrypted recovery pointers use a dedicated kind so they never render as
+// notes in followers' feeds.
+export const RECOVERY_KIND = 3407
+const RECOVERY_TAG = 'wot-pay-recovery-v3'
+
 // Called before every consuming mint request. A receipt is tied to the exact
 // operation revision and a full encrypted snapshot that includes its secrets.
 export async function backupOperation(vault, signer, operation, fetcher = fetch, client) {
@@ -17,7 +22,7 @@ export async function backupOperation(vault, signer, operation, fetcher = fetch,
   await vault.write('backup-index', { hash: await digest(bytes), servers, operationHash, snapshotHash:await contentHash(records), encryptedBackup:new TextDecoder().decode(bytes), checkedAt: result.checkedAt, results: result.results }, row?.revision || 0)
   if (result.verifiedCopies < 2) throw new Error('Fewer than two backup copies verified. Funds have not been moved by this operation.')
   if(!client)throw new Error('Recovery discovery relays are required before moving funds.')
-  const pointer=await signer.sign({kind:1,created_at:Math.floor(Date.now()/1000),tags:[['t','wot-pay-recovery-v2']],content:await signer.sealLocal({owner:signer.pubkey,hash:result.hash,servers,createdAt:Date.now()})})
+  const pointer=await signer.sign({kind:RECOVERY_KIND,created_at:Math.floor(Date.now()/1000),tags:[['t',RECOVERY_TAG]],content:await signer.sealLocal({owner:signer.pubkey,hash:result.hash,servers,createdAt:Date.now()})})
   // Append-only pointers avoid same-second replacement races. Read back the
   // signed ID from two distinct relay hosts before acknowledging the backup.
   const hosts=new Set(),verified=[]
@@ -47,10 +52,10 @@ export async function syncPrivateBackup(vault,signer,fetcher=fetch,client) {
 }
 
 export async function findRemoteSnapshots(client,signer,secret,fetcher=fetch) {
-  const events=await client.queryIdentity({kinds:[1],authors:[signer.pubkey],'#t':['wot-pay-recovery-v2']})
+  const events=await client.queryIdentity({kinds:[RECOVERY_KIND],authors:[signer.pubkey],'#t':[RECOVERY_TAG]})
   const pointers=[]
   for(const event of events)try {
-    if(event.pubkey!==signer.pubkey||!verifyEvent(JSON.parse(JSON.stringify(event))))continue
+    if(event.kind!==RECOVERY_KIND||event.pubkey!==signer.pubkey||!verifyEvent(JSON.parse(JSON.stringify(event))))continue
     const pointer=await signer.openLocal(event.content)
     if(pointer.owner===signer.pubkey&&Number.isSafeInteger(pointer.createdAt)&&pointer.createdAt<=Date.now()+60000)pointers.push(pointer)
   }catch{}

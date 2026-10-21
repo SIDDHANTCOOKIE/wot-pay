@@ -1,4 +1,4 @@
-import { Amount, createNewMintKeys, createBlindSignature, createDLEQProof, pointFromHex, SigAll, meetsSignerThreshold, serializeSwapPreview, OutputData } from '@cashu/cashu-ts'
+import { Amount, getDecodedToken, createNewMintKeys, createBlindSignature, createDLEQProof, pointFromHex, SigAll, meetsSignerThreshold, serializeSwapPreview, OutputData } from '@cashu/cashu-ts'
 import { bytesToHex } from 'nostr-tools/utils'
 // In-process test mint: real blind signatures and DLEQ proofs, zero-value test
 // money only. Its ledger checks spending signatures, optionally caches exact
@@ -29,6 +29,7 @@ export function testMint(agreement, { cache = true } = {}) {
     markPending: proofs => proofs.forEach(p => pending.add(p.secret)),
     spendElsewhere: proofs => proofs.forEach(p => spent.add(p.secret)),
     ensureOperableKeysets: async ids => { for (const id of ids) getKeyset(id) },
+    decodeToken: token => getDecodedToken(token, [...keysets.keys()]),
     getFeesForProofs: () => Amount.from(0),
     checkProofsStates: async proofs => proofs.map(p => ({ state: pending.has(p.secret) ? 'PENDING' : spent.has(p.secret) ? 'SPENT' : 'UNSPENT' })),
     mint: {

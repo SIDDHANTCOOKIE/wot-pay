@@ -7,11 +7,10 @@ export function marketplaceConfig(env = import.meta.env) {
   // Only mints whose lost-response NUT-09 restoration passed a live test.
   try { restoreMints = JSON.parse(env.VITE_RESTORE_VERIFIED_MINTS || '[]') } catch { /* Invalid config disables restore-only mints. */ }
   restoreMints = Array.isArray(restoreMints) ? restoreMints.filter(m => { try { return httpsOrigin(m) === m } catch { return false } }) : []
-  const feeRecipient = env.VITE_FEE_RECIPIENT || ''
   const ready=panel.length > 0
-  return { panel, feeRecipient, restoreMints, ready, protectedEnabled: ready && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
+  return { panel, restoreMints, ready, protectedEnabled: ready && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
 }
 
 export function assertDeploymentAgreement(config, agreement) {
-  if(!config.ready||(agreement.serviceFeeSats>0&&agreement.feeRecipient!==config.feeRecipient)||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKey===agreement.escrowKeys.arbitrator))throw new Error('Agreement must use the configured independent arbitrator panel and fee recipient.')
+  if(!config.ready||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKey===agreement.escrowKeys.arbitrator))throw new Error('Agreement must use the configured independent arbitrator panel.')
 }

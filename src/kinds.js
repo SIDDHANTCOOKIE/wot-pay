@@ -7,6 +7,8 @@ export const KIND = {
   ACCEPT: 3405, // Maker accepts one exact claim before payment.
   CANCEL: 5, // NIP-09 claim deletion request
 }
+// Reserved by the private marketplace (src/marketplace): 3406 signed trade
+// messages inside gift wraps, 3407 recovery pointers. Do not reuse them here.
 
 export const KIND_NAME = Object.fromEntries(
   Object.entries(KIND).map(([k, v]) => [v, k.toLowerCase()]),

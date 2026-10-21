@@ -36,7 +36,7 @@ export default function QuotePreview({ draft, onBack, market, signer, board, onR
     <p className="dim">{reference && now - reference.at < 300000 ? `Reference: ${rupees(reference.inr)} / BTC. Refreshed every minute.` : 'Reference unavailable or stale. You can enter a fixed rate.'}</p>
     {quote ? <div className="card price-breakdown"><h2>Estimated cost</h2><dl>
       <dt>Payer receives</dt><dd>{sats(quote.payerSats)}</dd>
-      <dt>Platform fee</dt><dd>{sats(quote.serviceFeeSats)}</dd>
+      <dt>Platform fee</dt><dd>None</dd>
       <dt>Funding costs</dt><dd>Not yet quoted</dd>
       <dt>Subtotal</dt><dd>{sats(quote.totalSats)} + funding costs</dd>
     </dl><p className="dim">The exact quote will lock when both people agree. There is no mandatory platform fee.</p></div> : <p role="status" className="hint">{error}</p>}

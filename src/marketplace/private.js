@@ -2,7 +2,7 @@ import { wrapEvent, unwrapEvent } from 'nostr-tools/nip17'
 import { getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { parsePrivate } from './protocol.js'
 
-const SUBJECT = 'wot-pay-v2:trade'
+const SUBJECT = 'wot-pay-v3:trade'
 export function wrapPrivate(sk, to, signed) {
   const parsed = parsePrivate(signed)
   if (!parsed || signed.pubkey !== getPublicKey(sk) || !/^[0-9a-f]{64}$/.test(to)) throw new Error('Invalid private message or recipient.')

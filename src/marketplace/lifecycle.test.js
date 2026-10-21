@@ -4,9 +4,8 @@ import { IDBFactory } from 'fake-indexeddb'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { testMint } from './test-mint.fixture.js'
 import { testTrade } from './fixtures.js'
-import { prepareFee, completeFee, verifyFeeProofs } from './fees.js'
 import { prepareFunding, completeFunding, prepareResolution, signResolution, completeResolution, verifyPayout, resolutionFingerprint, prepareClaim, completeClaim } from './escrow.js'
-import { backupOperation, findRemoteSnapshots } from './backup.js'
+import { backupOperation, findRemoteSnapshots, RECOVERY_KIND } from './backup.js'
 import { createVault } from './vault.js'
 import { encryptBackup, decryptBackup, newRecoverySecret } from '../recovery.js'
 import { contentHash, tradeView, parsePrivate } from './protocol.js'
@@ -27,22 +26,19 @@ async function recovery(fixture) {
   return {vault,signer,secret,fetcher,client,blobs,backup:op=>backupOperation(vault,signer,op,fetcher,client)}
 }
 
-it('runs accepted quote → fee → escrow → release → recipient claim with replicated recovery and exact retry',async()=>{
+it('runs payer offer → funding → release → recipient claim with replicated recovery and exact retry',async()=>{
   const t=await testTrade(),wallet=testMint(t.agreement),r=await recovery(t)
-  const events=[t.sign('requester','accept'),t.sign('payer','accept')]
+  const offer=t.sign('payer','proposal',{}),events=[offer]
   expect(tradeView(t.agreement,t.id,events).canFund).toBe(true)
-  const input=wallet.issue(OutputData.createRandomData(1020,wallet.getKeyset()))
-  const feeOp=await prepareFee(wallet,t.agreement,input)
-  await r.vault.write('fee-operation',feeOp)
-  const fee=await completeFee(wallet,t.agreement,feeOp,r.backup)
-  expect(await verifyFeeProofs(wallet,t.agreement,fee.send)).toBe(true)
-  await expect(verifyFeeProofs(wallet,{...t.agreement,nonce:'3'.repeat(64)},fee.send)).rejects.toThrow('agreement')
-  expect(await completeFee(wallet,t.agreement,feeOp,r.backup)).toEqual(fee)
-  const fundingOp=await prepareFunding(wallet,t.agreement,fee.keep)
+  const input=wallet.issue(OutputData.createRandomData(1010,wallet.getKeyset()))
+  const fundingOp=await prepareFunding(wallet,t.agreement,input)
   await r.vault.write('funding-operation',fundingOp)
   const funded=await completeFunding(wallet,t.agreement,fundingOp,r.backup)
-  expect(parsePrivate(t.sign('requester','funding',{proofs:funded.send,feeProofs:fee.send})).payload.proofs).toEqual(funded.send)
+  const notice=t.sign('requester','funding',{proofs:funded.send,re:offer.id})
+  expect(parsePrivate(notice).payload.proofs).toEqual(funded.send)
+  events.push(notice)
   expect(tradeView(t.agreement,t.id,events,{funding:funded.funding}).canPay).toBe(true)
+  expect(funded.keep.reduce((n,p)=>n+Number(p.amount),0)).toBe(10)
   const op=await prepareResolution(wallet,t.agreement,funded.send,{requesterSats:0,payerSats:1000,mintFeeSats:0,reason:'merchant confirmed'})
   const fingerprint=await resolutionFingerprint(t.agreement,funded.send,op)
   const one=await signResolution(t.agreement,funded.send,op,t.keys.requester.secret)
@@ -60,11 +56,11 @@ it('runs accepted quote → fee → escrow → release → recipient claim with 
   expect(restored.records.find(row=>row.id==='funding-operation').value).toEqual(fundingOp)
 })
 
-it('refuses stale, wrong-operation and same-host backup acknowledgements before consuming fee inputs',async()=>{
+it('refuses stale, wrong-operation and same-host backup acknowledgements before consuming funding inputs',async()=>{
   const t=await testTrade(),wallet=testMint(t.agreement)
-  const input=wallet.issue(OutputData.createRandomData(1020,wallet.getKeyset())),op=await prepareFee(wallet,t.agreement,input)
+  const input=wallet.issue(OutputData.createRandomData(1000,wallet.getKeyset())),op=await prepareFunding(wallet,t.agreement,input)
   const valid={operationHash:await contentHash(op),verifiedCopies:2,checkedAt:Date.now(),results:[{server:'https://a.example',verified:true},{server:'https://b.example',verified:true}]}
-  for(const bad of [{...valid,operationHash:'0'.repeat(64)},{...valid,checkedAt:Date.now()-61000},{...valid,results:[valid.results[0],valid.results[0]]}])await expect(completeFee(wallet,t.agreement,op,async()=>bad)).rejects.toThrow('backups')
+  for(const bad of [{...valid,operationHash:'0'.repeat(64)},{...valid,checkedAt:Date.now()-61000},{...valid,results:[valid.results[0],valid.results[0]]}])await expect(completeFunding(wallet,t.agreement,op,async()=>bad)).rejects.toThrow('backups')
   expect((await wallet.checkProofsStates(input)).every(p=>p.state==='UNSPENT')).toBe(true)
 })
 
@@ -102,7 +98,7 @@ it('does not recover an older signing journal when a newer signed backup pointer
   const pointers=[]
   for(const [event,time] of [[older,Date.now()-1000],[newer,Date.now()]]) {
     const pointer=await r.signer.openLocal(event.content)
-    pointers.push(await r.signer.sign({kind:1,created_at:event.created_at,tags:event.tags,content:await r.signer.sealLocal({...pointer,createdAt:time})}))
+    pointers.push(await r.signer.sign({kind:RECOVERY_KIND,created_at:event.created_at,tags:event.tags,content:await r.signer.sealLocal({...pointer,createdAt:time})}))
     if(event.id===newer.id)for(const server of pointer.servers)r.blobs.delete(`${server}/${pointer.hash}`)
   }
   r.client.queryIdentity=async()=>pointers

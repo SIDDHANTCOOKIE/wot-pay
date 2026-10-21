@@ -1,6 +1,5 @@
-export const SERVICE_FEE_BPS = 0
-export const LEGACY_TERMS_VERSION = 'wot-pay-v2-2026-10-20'
-export const TERMS_VERSION = 'wot-pay-v2-voluntary-support-2026-10-20'
+// There is no platform fee. Only disclosed mint and network costs apply.
+export const TERMS_VERSION = 'wot-pay-v3-no-platform-fee'
 export const QUOTE_LIFETIME_MS = 5 * 60_000
 
 // Decimal input is converted before arithmetic; binary floats never round money.
@@ -18,13 +17,10 @@ function safe(value) {
 }
 const ceil = (n, d) => (n + d - 1n) / d
 
-export function feeBreakdown(payerSats, fundingFeeSats = 0, termsVersion = TERMS_VERSION) {
+export function costBreakdown(payerSats, fundingFeeSats = 0) {
   if (!Number.isSafeInteger(payerSats) || payerSats <= 0 || !Number.isSafeInteger(fundingFeeSats) || fundingFeeSats < 0)
     throw new Error('Sats must be whole, non-negative amounts; the payer quote must be positive.')
-  if(![TERMS_VERSION,LEGACY_TERMS_VERSION].includes(termsVersion))throw new Error('Unknown fee terms.')
-  const fee = termsVersion===LEGACY_TERMS_VERSION?ceil(BigInt(payerSats),100n):0n
-  return Object.freeze({ payerSats, serviceFeeSats: Number(fee), fundingFeeSats,
-    totalSats: safe(BigInt(payerSats) + fee + BigInt(fundingFeeSats)), feeBps: termsVersion===LEGACY_TERMS_VERSION?100:SERVICE_FEE_BPS })
+  return Object.freeze({ payerSats, fundingFeeSats, totalSats: safe(BigInt(payerSats) + BigInt(fundingFeeSats)) })
 }
 
 export function quotePrice({ inr, rateType, fixedRate, premium = '0', reference, now = Date.now() }) {
@@ -45,6 +41,6 @@ export function quotePrice({ inr, rateType, fixedRate, premium = '0', reference,
     if (bps <= -10_000n) throw new Error('The quoted rate must be positive.')
     payerSats = safe(ceil(paise * 100_000_000n * (10_000n + bps), btcPaise * 10_000n))
   } else throw new Error('Choose a pricing method.')
-  return Object.freeze({ ...feeBreakdown(payerSats), paise: Number(paise), rateType,
+  return Object.freeze({ ...costBreakdown(payerSats), paise: Number(paise), rateType,
     termsVersion: TERMS_VERSION, createdAt: now, expiresAt: now + QUOTE_LIFETIME_MS })
 }

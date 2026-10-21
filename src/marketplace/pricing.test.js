@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { decimalUnits, feeBreakdown, quotePrice, LEGACY_TERMS_VERSION } from './pricing.js'
+import { decimalUnits, costBreakdown, quotePrice } from './pricing.js'
 
 describe('locked marketplace prices', () => {
-  it('charges no platform fee for new trades and preserves old signed terms', () => {
-    expect(feeBreakdown(10000,7)).toMatchObject({serviceFeeSats:0,totalSats:10007,feeBps:0})
-    expect(feeBreakdown(10000, 7, LEGACY_TERMS_VERSION)).toMatchObject({ serviceFeeSats: 100, totalSats: 10107 })
-    expect(feeBreakdown(101,0,LEGACY_TERMS_VERSION).serviceFeeSats).toBe(2)
-    expect(feeBreakdown(1,0,LEGACY_TERMS_VERSION).totalSats).toBe(2)
+  it('charges no platform fee: total is payer sats plus disclosed mint costs', () => {
+    expect(costBreakdown(10000,7)).toEqual({payerSats:10000,fundingFeeSats:7,totalSats:10007})
+    expect(Object.keys(costBreakdown(1))).not.toContain('serviceFeeSats')
   })
   it('uses exact decimal paise and fixed rates', () => {
     expect(decimalUnits('0.29')).toBe(29n)
@@ -25,8 +23,8 @@ describe('locked marketplace prices', () => {
       expect(() => quotePrice({ inr: '500', rateType: 'market', reference, now: 300000 })).toThrow()
   })
   it('rejects unsafe totals and fractional fees and keeps quotes immutable', () => {
-    expect(() => feeBreakdown(Number.MAX_SAFE_INTEGER,1)).toThrow()
-    expect(() => feeBreakdown(100, 0.1)).toThrow()
+    expect(() => costBreakdown(Number.MAX_SAFE_INTEGER,1)).toThrow()
+    expect(() => costBreakdown(100, 0.1)).toThrow()
     const q = quotePrice({ inr: '500', rateType: 'fixed', fixedRate: '10', now: 0 })
     expect(q.totalSats).toBe(5000)
     expect(q.expiresAt).toBe(300000)

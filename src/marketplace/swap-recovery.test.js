@@ -4,7 +4,6 @@ import { testTrade } from './fixtures.js'
 import { testMint } from './test-mint.fixture.js'
 import { contentHash } from './protocol.js'
 import { connectMint, prepareFunding, completeFunding, verifyFunding, prepareResolution, signResolution, completeResolution, verifyPayout, prepareClaim, completeClaim } from './escrow.js'
-import { prepareFee, completeFee, verifyFeeProofs } from './fees.js'
 import { completeOrRestoreSwap } from './swap-recovery.js'
 
 const backup=async operation=>({operationHash:await contentHash(operation),verifiedCopies:2,checkedAt:Date.now(),results:[{server:'https://one.example',verified:true},{server:'https://two.example',verified:true}]})
@@ -102,17 +101,6 @@ it('recovers lost payout and collection responses through the same adapter',asyn
   const collected=await completeClaim(t.wallet,t.agreement,claim,t.keys.payer.secret,backup)
   expect(collected.keep.reduce((n,p)=>n+Number(p.amount),0)).toBe(600)
   expect(ids((await completeClaim(t.wallet,t.agreement,claim,t.keys.payer.secret,backup)).keep)).toEqual(ids(collected.keep))
-})
-
-it('recovers a lost legacy service-fee response without paying the fee twice',async()=>{
-  const t=await testTrade(),wallet=testMint(t.agreement,{cache:false})
-  const input=wallet.issue(OutputData.createRandomData(1020,wallet.getKeyset())),op=await prepareFee(wallet,t.agreement,input)
-  wallet.faults.lose=true
-  const fee=await completeFee(wallet,t.agreement,op,backup)
-  expect(await verifyFeeProofs(wallet,t.agreement,fee.send)).toBe(true)
-  expect(ids((await completeFee(wallet,t.agreement,op,backup)).send)).toEqual(ids(fee.send))
-  const funded=await completeFunding(wallet,t.agreement,await prepareFunding(wallet,t.agreement,fee.keep),backup)
-  expect((await verifyFunding(wallet,t.agreement,funded.send)).verified).toBe(true)
 })
 
 it('connects to a finite-cache mint only when its NUT-09 restoration is verified',async()=>{
