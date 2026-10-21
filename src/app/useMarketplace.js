@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, viewOf, MARKET_TAG, LISTING_KIND, QUOTE_LIFETIME } from '../marketplace/protocol.js'
+import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, viewOf, MARKET_TAG, LISTING_KIND, QUOTE_LIFETIME, REFUND_DELAY } from '../marketplace/protocol.js'
 import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
@@ -146,7 +146,7 @@ export function useMarketplace(client, signer) {
     // A payer's proposal is also the payer's acceptance of these exact terms.
     if(ownRole==='payer')await commitAsPayer(null)
     const now=Math.floor(Date.now()/1000)
-    const agreement=validateAgreement({v:3,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+QUOTE_LIFETIME})
+    const agreement=validateAgreement({v:3,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+QUOTE_LIFETIME,refundAfter:now+QUOTE_LIFETIME+REFUND_DELAY})
     const id=await contentHash(agreement),signed=await signer.sign(privateTemplate(id,'proposal',{agreement,requestId:request.agreementId},now))
     await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],received:{[signed.id]:now},evidence:{}})
     await vault.write(requestRow.id,{...requestRow.value,proposal:signed},requestRow.revision)
@@ -257,6 +257,21 @@ export function useMarketplace(client, signer) {
     row=await save(row,{payouts:result.payouts,evidence:{...row.value.evidence,redemption:result.redemption}})
     await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
   }
+  // After the timelock the requester alone returns unresolved escrow to
+  // themselves; the mint enforces the locktime, so this cannot pay anyone else.
+  async function timelockRefund(row) {
+    if(!config.protectedEnabled)throw new Error('Mint settlement is disabled until deployment verification.')
+    row=await vault.read(row.id)
+    const a=row.value.agreement,view=viewOf(row)
+    if(signer.pubkey!==a.requester||!view.refundable)throw new Error('The refund timelock has not passed for this escrow.')
+    const wallet=await mintFor(a),fee=Number(wallet.getFeesForProofs(row.value.proofs))
+    const allocation={requesterSats:a.escrowSats-fee,payerSats:0,mintFeeSats:fee,reason:'Refund timelock passed without resolution.'}
+    const operation=row.value.refundOperation||await signResolution(a,row.value.proofs,await prepareResolution(wallet,a,row.value.proofs,allocation),row.value.escrowKey.secret)
+    row=await save(row,{refundOperation:operation})
+    const result=await completeResolution(wallet,a,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
+    row=await save(row,{payouts:result.payouts,resolutionOperation:operation,evidence:{...row.value.evidence,redemption:result.redemption}})
+    await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
+  }
   async function verifyIncomingPayout(row) {
     row=await vault.read(row.id)
     const a=row.value.agreement,message=row.value.events.map(parsePrivate).filter(e=>e?.action==='payout').at(-1)
@@ -312,5 +327,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey)}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund)}
 }

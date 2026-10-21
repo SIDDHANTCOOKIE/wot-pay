@@ -12,7 +12,7 @@ export function createEscrowKey() {
   return { secret: bytesToHex(secret), pubkey: bytesToHex(getPubKeyFromPrivKey(secret)) }
 }
 const escrowKeys = agreement => ['requester','payer','arbitrator'].map(role=>agreement.escrowKeys[role])
-export const escrowLock = agreement => ({ pubkey: escrowKeys(validateAgreement(agreement)), requiredSignatures: 2, sigFlag: 'SIG_ALL' })
+export const escrowLock = agreement => ({ pubkey: escrowKeys(validateAgreement(agreement)), requiredSignatures: 2, sigFlag: 'SIG_ALL', locktime: agreement.refundAfter, refundKeys: [agreement.escrowKeys.requester] })
 
 export function validateLockedProofs(agreement, proofs) {
   validateAgreement(agreement)
@@ -22,9 +22,10 @@ export function validateLockedProofs(agreement, proofs) {
   for (const p of proofs) {
     if (!Number.isSafeInteger(amount(p.amount)) || amount(p.amount) <= 0) throw new Error('Invalid proof amount.')
     const [kind, secret] = JSON.parse(p.secret)
-    if (kind !== 'P2PK' || !Array.isArray(secret.tags) || secret.tags.length !== 3) throw new Error('Escrow must use a permanent 2-of-3 lock.')
+    if (kind !== 'P2PK' || !Array.isArray(secret.tags) || secret.tags.length !== 5) throw new Error('Escrow must use the agreed 2-of-3 lock with a requester refund timelock.')
     const tags = new Map(secret.tags.map(t => [t[0], t.slice(1)]))
-    if (tags.size !== 3 || canonical(tags.get('sigflag')) !== '["SIG_ALL"]' || canonical(tags.get('n_sigs')) !== '["2"]' || canonical([secret.data, ...(tags.get('pubkeys') || [])]) !== canonical(expected)) throw new Error('Wrong escrow keys, signature threshold or output binding.')
+    if (tags.size !== 5 || canonical(tags.get('sigflag')) !== '["SIG_ALL"]' || canonical(tags.get('n_sigs')) !== '["2"]' || canonical([secret.data, ...(tags.get('pubkeys') || [])]) !== canonical(expected)) throw new Error('Wrong escrow keys, signature threshold or output binding.')
+    if (canonical(tags.get('locktime')) !== canonical([String(agreement.refundAfter)]) || canonical(tags.get('refund')) !== canonical([agreement.escrowKeys.requester])) throw new Error('Wrong refund timelock or refund key.')
     const next = canonical({ data: secret.data, tags: secret.tags })
     if (policy && policy !== next) throw new Error('Mixed spending conditions.')
     policy = next
@@ -148,12 +149,16 @@ export async function completeClaim(wallet, agreement, operation, privateKey, ba
   return plainSwap(await completeOrRestoreSwap(wallet,deserializeSwapPreview(operation.preview),privateKey))
 }
 
-export async function completeResolution(wallet, agreement, proofs, operation, durableBackup) {
+// After refundAfter the requester's signature alone may return the escrow to
+// the requester (NUT-11 refund path); the mint enforces the locktime too.
+export async function completeResolution(wallet, agreement, proofs, operation, durableBackup, now = Math.floor(Date.now() / 1000)) {
   const { pkg, preview } = await validateResolutionOperation(agreement, proofs, operation)
   const transcript = pkg.inputs.map(p => p.secret + p.C).join('') + pkg.outputs.map(o => String(amount(o.amount)) + o.B_).join('')
   const split=operation.allocation.requesterSats>0&&operation.allocation.payerSats>0
   const eligible=split?[agreement.escrowKeys.requester,agreement.escrowKeys.payer]:Object.values(agreement.escrowKeys)
-  if (!meetsSignerThreshold(pkg.witness?.signatures || [], transcript, eligible, 2)) throw new Error(split?'A split requires both participants’ signatures.':'Two distinct escrow signatures are required.')
+  const signatures = pkg.witness?.signatures || []
+  const refundPath = operation.allocation.payerSats === 0 && now >= agreement.refundAfter && meetsSignerThreshold(signatures, transcript, [agreement.escrowKeys.requester], 1)
+  if (!refundPath && !meetsSignerThreshold(signatures, transcript, eligible, 2)) throw new Error(split?'A split requires both participants’ signatures.':'Two distinct escrow signatures are required.')
   await requireBackup(operation,durableBackup)
   const result = plainSwap(await completeOrRestoreSwap(wallet,SigAll.mergeSwapPackage(pkg, preview)))
   // Match recipient outputs by their secrets, not by a potentially changed order.

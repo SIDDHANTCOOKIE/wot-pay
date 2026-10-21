@@ -15,7 +15,8 @@ export function testMint(agreement, { cache = true } = {}) {
   rotate()
   const getKeyset = (id = active) => { const k = keysets.get(id); if (!k) throw new Error('unknown keyset'); return k.keyset }
   const spent = new Set(), pending = new Set(), responses = new Map(), signed = new Map()
-  const faults = { lose: false, fail: false, restore: r => r, restoreCalls: 0 }
+  // time: the mint's own clock (unix seconds), which decides NUT-11 locktimes.
+  const faults = { lose: false, fail: false, restore: r => r, restoreCalls: 0, time: () => Math.floor(Date.now() / 1000) }
   const sign = o => {
     const b = o.blindedMessage, { keys } = keysets.get(b.id), amount = Number(b.amount), B = pointFromHex(b.B_), sk = keys.privKeys[amount]
     const sig = { id: b.id, amount, C_: createBlindSignature(B,sk,b.id).C_.toHex(true), dleq: (({e,s}) => ({ e: bytesToHex(e), s: bytesToHex(s) }))(createDLEQProof(B,sk)) }
@@ -50,7 +51,9 @@ export function testMint(agreement, { cache = true } = {}) {
         const pkg = SigAll.extractSwapPackage(preview)
         const transcript = pkg.inputs.map(p => p.secret+p.C).join('') + pkg.outputs.map(o => String(o.amount)+o.B_).join('')
         const witness = typeof preview.inputs[0].witness === 'string' ? JSON.parse(preview.inputs[0].witness) : preview.inputs[0].witness
-        if (!meetsSignerThreshold(witness?.signatures || [],transcript,Object.values(agreement.escrowKeys),2)) throw new Error('mint rejected missing signatures')
+        const tags = new Map(JSON.parse(preview.inputs[0].secret)[1].tags.map(t => [t[0], t.slice(1)])), signatures = witness?.signatures || []
+        const refund = tags.has('locktime') && faults.time() >= Number(tags.get('locktime')[0]) && meetsSignerThreshold(signatures,transcript,tags.get('refund') || [],1)
+        if (!refund && !meetsSignerThreshold(signatures,transcript,Object.values(agreement.escrowKeys),2)) throw new Error('mint rejected missing signatures')
       }
       const result = { keep:issue(preview.keepOutputs || []),send:issue(preview.sendOutputs || []) }
       preview.inputs.forEach(p => spent.add(p.secret))

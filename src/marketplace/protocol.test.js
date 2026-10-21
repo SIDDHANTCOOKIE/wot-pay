@@ -1,7 +1,7 @@
 import { expect, it, vi, onTestFinished } from 'vitest'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { testTrade } from './fixtures.js'
-import { listingTemplate, currentListings, validateAgreement, tradeView, viewOf, validateResolution, requireFreeSlot, payerCommitted, parsePrivate, contentHash, FUNDING_WINDOW, GRACE, TRADE_KIND } from './protocol.js'
+import { listingTemplate, currentListings, validateAgreement, tradeView, viewOf, validateResolution, requireFreeSlot, payerCommitted, parsePrivate, contentHash, FUNDING_WINDOW, GRACE, TRADE_KIND, CONFIRM_WINDOW } from './protocol.js'
 
 // Peers' messages dated in the future are ignored, so view trades from later.
 function later(now) {
@@ -125,4 +125,16 @@ it('holds the payer slot until on-time funding can no longer arrive', async () =
   const decline = sign('payer','escrow-declined',{ re: notice.id },now+3)
   expect(payerCommitted(agreement.payer,[row([proposal,notice,decline],verified)],'trade:other',last+1000)).toBe(false)
   expect(viewOf(row([proposal,notice],verified),now+5).occupiesSlot).toBe(true)
+})
+it('exposes the refund date and asks an unconfirmed payer to dispute before it', async () => {
+  const { agreement, id, sign, now, proposal, verified } = await committed()
+  const notice = sign('requester','funding',{ re: proposal.id },now+2)
+  const paid = sign('payer','payment-report',{ status: 'successful', re: notice.id },now+3)
+  const events = [proposal,notice,paid]
+  expect(tradeView(agreement,id,events,verified,now+4).disputeDue).toBe(false)
+  const due = tradeView(agreement,id,events,verified,paid.created_at+CONFIRM_WINDOW)
+  expect([due.disputeDue,due.refundable,due.refundAfter]).toEqual([true,false,agreement.refundAfter])
+  expect(tradeView(agreement,id,[...events,sign('requester','merchant-confirmed',{},now+4)],verified,paid.created_at+CONFIRM_WINDOW).disputeDue).toBe(false)
+  expect(tradeView(agreement,id,events,verified,agreement.refundAfter).refundable).toBe(true)
+  expect(() => validateAgreement({ ...agreement, refundAfter: agreement.refundAfter - 1 })).toThrow('refund time')
 })

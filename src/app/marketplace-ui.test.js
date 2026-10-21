@@ -52,3 +52,19 @@ it('keeps the example non-interactive and honors dismissal', () => {
   expect(render(ExampleOffer, {})).not.toContain('Simulated example offer')
   expect(render(ExampleOffer, {})).toContain('Show example offer')
 })
+it('shows the payer a dispute prompt and the requester a solo refund once their deadlines pass', async () => {
+  const { testTrade } = await import('../marketplace/fixtures.js')
+  const { tradeView, CONFIRM_WINDOW } = await import('../marketplace/protocol.js')
+  const { default: ProtectedTrades } = await import('./ProtectedTrades.jsx')
+  const t = await testTrade(), proposal = t.sign('payer','proposal',{}), notice = t.sign('requester','funding',{re:proposal.id},t.now+2)
+  const paid = t.sign('payer','payment-report',{status:'successful',re:notice.id},t.now+3)
+  const evidence = { funding: { agreementId: t.id, verified: true, verifiedAt: t.now+2 } }
+  const page = (pubkey, now) => {
+    const row = { id: `trade:${t.id}`, value: { agreement: t.agreement, events: [proposal,notice,paid], evidence } }
+    return render(ProtectedTrades, { signer: { pubkey }, market: { records: [], trades: [{ ...row, view: tradeView(t.agreement,t.id,row.value.events,evidence,now) }], config: { protectedEnabled: true } } })
+  }
+  expect(page(t.agreement.payer, paid.created_at+CONFIRM_WINDOW)).toContain('has not confirmed your payment for 24 hours')
+  expect(page(t.agreement.payer, t.now+10)).not.toContain('has not confirmed your payment')
+  expect(page(t.agreement.requester, t.agreement.refundAfter)).toContain('Refund escrow to me')
+  expect(page(t.agreement.requester, t.agreement.refundAfter-1)).not.toContain('Refund escrow to me')
+})

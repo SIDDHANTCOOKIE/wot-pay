@@ -87,7 +87,7 @@ beforeEach(() => {
   vi.stubGlobal('navigator', { locks: { request: (name, fn) => fn() } })
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} })
 })
-afterEach(() => { mounted.forEach(m => m.unmount()); mounted = []; vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+afterEach(() => { vi.useRealTimers(); mounted.forEach(m => m.unmount()); mounted = []; vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
 async function market() {
   const arbitrator = deviceSigner(), arbitratorEscrow = createEscrowKey()
@@ -166,4 +166,25 @@ it('refuses a second payer commitment while the first offer can still be funded'
   await m.r.api().requestQuote(seen, 40000, 800, { vpa: 'merchant@upi' })
   const second = await until(() => m.p.api().records.find(row => row.value.kind === 'request' && row.value.incoming && !row.value.proposal), 'second request')
   await expect(m.p.api().propose(second, 800)).rejects.toThrow('existing accepted trade')
+})
+
+it('prompts an unconfirmed payer to dispute, then lets the requester alone refund after the timelock', async () => {
+  const m = await market()
+  await m.r.api().fund(await m.row(m.r), await m.token())
+  await until(async () => (await m.row(m.p)).view.notice, 'funding notice')
+  await m.p.api().verifyIncomingFunding(await m.row(m.p))
+  await m.p.api().action(await m.row(m.p), 'payment-report', { status: 'successful' })
+  await until(async () => (await m.row(m.r)).view.paymentStarted, 'payment report')
+  await expect(m.r.api().timelockRefund(await m.row(m.r))).rejects.toThrow('timelock has not passed')
+  const { refundAfter } = (await m.row(m.r)).value.agreement
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(Date.now() + 86400_000 + 5000)
+  // The hook's clock ticks each second; the prompt appears on the next tick.
+  await until(async () => (await m.row(m.p)).view.disputeDue, 'dispute prompt')
+  vi.setSystemTime(refundAfter * 1000)
+  await m.r.api().timelockRefund(await m.row(m.r))
+  expect((await m.row(m.r)).view.completed).toBe(true)
+  await until(async () => (await m.row(m.p)).view.events.some(e => e.action === 'payout'), 'refund receipt')
+  await m.p.api().verifyIncomingPayout(await m.row(m.p))
+  expect((await m.row(m.p)).view.completed).toBe(true)
 })

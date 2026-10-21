@@ -10,6 +10,11 @@ export const LISTING_KIND = 30078
 export const TRADE_KIND = 3406
 export const QUOTE_LIFETIME = 300
 export const FUNDING_WINDOW = 120
+// After this delay the requester alone may refund unresolved escrow (NUT-11
+// locktime). Disputes must be resolved before then; 2-of-3 stays valid too.
+export const REFUND_DELAY = 14 * 86400
+// A payer whose reported payment is unconfirmed this long should dispute.
+export const CONFIRM_WINDOW = 86400
 // Relay and mint latency allowed past a deadline, on both clocks.
 export const GRACE = 60
 const HEX = /^[0-9a-f]{64}$/
@@ -67,11 +72,11 @@ export function currentListings(events, now = Math.floor(Date.now() / 1000)) {
 }
 
 export function validateAgreement(a) {
-  if (!exact(a, ['v', 'termsVersion', 'nonce', 'listingId', 'requester', 'payer', 'arbitrator', 'escrowKeys', 'mint', 'paise', 'payerSats', 'fundingFeeSats', 'releaseFeeSats', 'escrowSats', 'destination', 'quoteExpiresAt', 'createdAt'])) fail('Unexpected agreement fields.')
+  if (!exact(a, ['v', 'termsVersion', 'nonce', 'listingId', 'requester', 'payer', 'arbitrator', 'escrowKeys', 'mint', 'paise', 'payerSats', 'fundingFeeSats', 'releaseFeeSats', 'escrowSats', 'destination', 'quoteExpiresAt', 'createdAt', 'refundAfter'])) fail('Unexpected agreement fields.')
   if (a.v !== 3 || a.termsVersion !== TERMS_VERSION || !HEX.test(a.nonce) || !HEX.test(a.listingId) || ![a.requester, a.payer, a.arbitrator].every(k => HEX.test(k)) || new Set([a.requester, a.payer, a.arbitrator]).size !== 3) fail('Agreement requires three distinct identities.')
   if (!exact(a.escrowKeys, ['requester', 'payer', 'arbitrator']) || Object.keys(a.escrowKeys).length !== 3 || !Object.values(a.escrowKeys).every(k => KEY.test(k)) || new Set(Object.values(a.escrowKeys).map(k => k.slice(2))).size !== 3) fail('Agreement requires three distinct escrow keys.')
   try { for (const key of Object.values(a.escrowKeys)) pointFromHex(key) } catch { fail('Agreement contains an invalid curve key.') }
-  if (!integer(a.paise) || !integer(a.createdAt, 0) || !integer(a.quoteExpiresAt) || a.quoteExpiresAt !== a.createdAt + QUOTE_LIFETIME || httpsOrigin(a.mint) !== a.mint) fail('Invalid amount, mint or quote deadline.')
+  if (!integer(a.paise) || !integer(a.createdAt, 0) || !integer(a.quoteExpiresAt) || a.quoteExpiresAt !== a.createdAt + QUOTE_LIFETIME || a.refundAfter !== a.quoteExpiresAt + REFUND_DELAY || httpsOrigin(a.mint) !== a.mint) fail('Invalid amount, mint, quote deadline or refund time.')
   costBreakdown(a.payerSats, a.fundingFeeSats)
   if (!integer(a.releaseFeeSats, 0) || !integer(a.escrowSats) || BigInt(a.escrowSats) !== BigInt(a.payerSats) + BigInt(a.releaseFeeSats)) fail('Invalid escrow fee allowance.')
   if (!exact(a.destination, ['vpa', 'payee', 'note']) || typeof a.destination.vpa !== 'string' || !/^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z]{2,64}$/.test(a.destination.vpa) || [a.destination.payee, a.destination.note].some(v => v !== undefined && (typeof v !== 'string' || v.length > 256))) fail('Invalid private payment destination.')
@@ -131,6 +136,7 @@ export function tradeView(agreement, agreementId, rawEvents, evidence = {}, now 
   const completed = funded && evidence.redemption?.agreementId === agreementId && evidence.redemption.verified === true
   const paymentStarted = reports.length > 0
   const merchantConfirmed = active.some(e => e.action === 'merchant-confirmed' && e.pubkey === requester)
+  const paidReport = reports.filter(e => ['successful', 'pending'].includes(e.payload.status)).at(-1)
   let status = offered ? 'awaiting-funding' : now > agreement.quoteExpiresAt ? 'quote-expired' : 'awaiting-payer'
   if (offered && !notice && !funded && now > fundBy) status = 'funding-expired'
   if (notice && !funded) status = 'escrow-sent'
@@ -147,6 +153,9 @@ export function tradeView(agreement, agreementId, rawEvents, evidence = {}, now 
     canFund: offered && !notice && !funded && !cancellation && !dispute && now <= fundBy,
     canPay: offered && funded && !lateFunding && !completed && !paymentStarted && !cancellation && !dispute,
     occupiesSlot: funded && !lateFunding && !completed,
+    refundAfter: agreement.refundAfter,
+    refundable: funded && !completed && now >= agreement.refundAfter,
+    disputeDue: funded && !completed && !dispute && !merchantConfirmed && !!paidReport && now >= paidReport.created_at + CONFIRM_WINDOW,
     mayEscalate: funded && !completed && now >= (evidence.funding.verifiedAt || now) + 600,
   }
 }
