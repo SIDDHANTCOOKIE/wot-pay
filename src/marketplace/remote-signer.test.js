@@ -48,3 +48,14 @@ it('keeps one vault key per identity, never replaces one it cannot open, and res
   expect(await broken.openLocal(sealed)).toEqual({ secret: 'escrow key' })
   expect(withMarketplace({ pubkey: 'x' }, null).sealLocal).toBeUndefined()
 })
+it('sends notices any NIP-17 client can read, which wot-pay itself ignores', async () => {
+  const { unwrapEvent } = await import('nostr-tools/nip17')
+  const { wrapNotice } = await import('./private.js')
+  const t = await testTrade(), remote = externalSigner(t.identities.requester.sk)
+  for (const wrap of [await remote.signer.wrapNotice(t.agreement.payer, 'wot-pay: hello'), wrapNotice(t.identities.requester.sk, t.agreement.payer, 'wot-pay: hello')]) {
+    const rumor = unwrapEvent(wrap, t.identities.payer.sk)
+    expect([rumor.kind, rumor.content, rumor.pubkey, rumor.tags.some(x => x[0] === 'subject')]).toEqual([14, 'wot-pay: hello', t.agreement.requester, false])
+    expect(openPrivate(t.identities.payer.sk, wrap)).toBeNull()
+  }
+  await expect(remote.signer.wrapNotice(t.agreement.payer, '')).rejects.toThrow()
+})

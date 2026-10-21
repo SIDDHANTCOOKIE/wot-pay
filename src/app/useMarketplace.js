@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, viewOf, MARKET_TAG, LISTING_KIND, QUOTE_LIFETIME, REFUND_DELAY } from '../marketplace/protocol.js'
+import { listingTemplate, parseListing, currentListings, contentHash, privateTemplate, parsePrivate, validateAgreement, tradeView, viewOf, MARKET_TAG, LISTING_KIND, QUOTE_LIFETIME, REFUND_DELAY, CONFIRM_WINDOW } from '../marketplace/protocol.js'
 import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
@@ -111,6 +111,22 @@ export function useMarketplace(client, signer) {
     }).catch(e=>setError(e.message))
     return()=>{live=false;close?.()}
   },[client,signer,vault,inboxRevision])
+  // Best-effort nudge through the person's usual Nostr app, which shows it
+  // while wot-pay is closed. It carries no UPI ID or amount, never blocks a
+  // trade step and is not retried. Set localStorage wot-pay:nostr-notices=off
+  // to stop sending them.
+  function notify(to,text) {
+    let off=false
+    try{off=localStorage.getItem('wot-pay:nostr-notices')==='off'}catch{}
+    if(off||!signer?.wrapNotice)return
+    let link='wot-pay'
+    try{link=`${location.origin}${location.pathname}#trades`}catch{}
+    void (async()=>{
+      const relays=inboxRelays(await client.queryIdentity({kinds:[10050],authors:[to]}),to)
+      if(relays.length)await client.publishTo(relays,await signer.wrapNotice(to,`wot-pay: ${text} ${link}`))
+    })().catch(()=>{})
+  }
+  const when=seconds=>new Date(seconds*1000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})
   async function enableInbox() {
     const signed=await signer.sign({kind:10050,created_at:Math.floor(Date.now()/1000),tags:client.relays.map(url=>['relay',url]),content:''})
     await client.publish(signed);setInboxRevision(n=>n+1)
@@ -138,6 +154,7 @@ export function useMarketplace(client, signer) {
     const signed=await signer.sign(privateTemplate(requestId,'quote-request',payload))
     await vault.write(`request:${requestId}`,{kind:'request',incoming:false,request:signed,listing,escrowKey})
     await deliverPrivate({client,signer,vault,to:listing.pubkey,signed});await reload()
+    notify(listing.pubkey,'You have a new private quote request. Respond in the next few minutes.')
   }
   // A payer commits by signing exact terms; first pause advertisements and
   // refuse a second commitment while another trade can still be funded.
@@ -171,6 +188,7 @@ export function useMarketplace(client, signer) {
     await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],received:{[signed.id]:now},evidence:{}})
     await vault.write(requestRow.id,{...requestRow.value,proposal:signed},requestRow.revision)
     await deliverPrivate({client,signer,vault,to:request.pubkey,signed});await reload()
+    notify(request.pubkey,ownRole==='payer'?'A payer offered exact terms for your QR. Accept and fund within 5 minutes.':'A requester sent exact terms for their QR job. Accept within 5 minutes.')
   }
   const own=(row,signed)=>({events:[...row.value.events,signed],received:{...row.value.received,[signed.id]:signed.created_at}})
   async function action(row,action,payload={}) {
@@ -201,6 +219,10 @@ export function useMarketplace(client, signer) {
     await vault.write(row.id,{...fresh.value,...own(fresh,signed)},fresh.revision)
     for(const to of [a.requester,a.payer,...(view.dispute?[a.arbitrator]:[])].filter(pk=>pk!==me))await deliverPrivate({client,signer,vault,to,signed})
     await reload()
+    const other=me===a.requester?a.payer:a.requester
+    if(action==='accept')notify(other,'The payer accepted your terms. Fund the escrow in the next 10 minutes.')
+    if(action==='escrow-declined')notify(other,'The payer declined the escrow, so it will be refunded. Approve the refund in wot-pay.')
+    if(action==='dispute')notify(other,'A problem was reported on your trade. Add your evidence in wot-pay.')
   }
   const listings=currentListings([...publicEvents.values()],clock)
   const trades=records.filter(r=>r.value.kind==='trade').map(row=>({...row,view:viewOf(row,clock)}))
@@ -245,6 +267,7 @@ export function useMarketplace(client, signer) {
   async function announceFunding(row,view,result) {
     row=await save(row,{proofs:result.send,change:result.keep,evidence:{...row.value.evidence,funding:result.funding}})
     await sendTrade(row,'funding',{proofs:result.send,re:view.acceptance.id})
+    notify(row.value.agreement.payer,'Escrow for your trade is funded and locked at the mint. Pay the merchant now.')
     await reload()
   }
   // Advanced: the requester pastes ecash already held at the agreed mint.
@@ -300,8 +323,10 @@ export function useMarketplace(client, signer) {
     const wallet=await mintFor(a)
     const funding=await verifyFunding(wallet,a,view.notice.payload.proofs)
     row=await save(row,{proofs:view.notice.payload.proofs,evidence:{...row.value.evidence,funding}})
-    if(signer.pubkey===a.payer&&!view.declined&&(view.lateNotice||payerCommitted(a.payer,await vault.snapshot(),row.id)))
+    if(signer.pubkey===a.payer&&!view.declined&&(view.lateNotice||payerCommitted(a.payer,await vault.snapshot(),row.id))) {
       await sendTrade(row,'escrow-declined',{re:view.notice.id,reason:view.lateNotice?'Escrow arrived after the funding window.':'Payer had already committed to another trade.'})
+      notify(a.requester,'Your escrow arrived too late for this payer, so it will be refunded. Approve the refund in wot-pay.')
+    }
     await reload()
   }
   async function proposeResolution(row,allocation) {
@@ -334,6 +359,9 @@ export function useMarketplace(client, signer) {
     validateResolution(a,viewOf(row),allocation,signer.pubkey)
     row=await save(row,{resolutionOperation:await prepareResolution(wallet,a,row.value.proofs,allocation)})
     await approveResolution(row,row.value.resolutionOperation)
+    notify(a.requester,'The payer says the merchant has been paid. Confirm in wot-pay once the merchant sees it.')
+    // A reminder in the payer's own app: wot-pay cannot wake itself up later.
+    notify(signer.pubkey,`Reminder: if the requester has not confirmed by ${when(Math.floor(Date.now()/1000)+CONFIRM_WINDOW)}, report a problem in wot-pay before ${when(a.refundAfter)}.`)
   }
   // Requester, one click: confirm the merchant was paid, add the second
   // signature to the payer's signed release, and settle it at the mint.
@@ -355,6 +383,8 @@ export function useMarketplace(client, signer) {
     const result=await completeResolution(wallet,row.value.agreement,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
     row=await save(row,{payouts:result.payouts,evidence:{...row.value.evidence,redemption:result.redemption}})
     await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
+    const a=row.value.agreement
+    notify(signer.pubkey===a.requester?a.payer:a.requester,'Your trade settled at the mint.')
   }
   // After the timelock the requester alone returns unresolved escrow to
   // themselves; the mint enforces the locktime, so this cannot pay anyone else.
@@ -370,6 +400,7 @@ export function useMarketplace(client, signer) {
     const result=await completeResolution(wallet,a,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
     row=await save(row,{payouts:result.payouts,resolutionOperation:operation,evidence:{...row.value.evidence,redemption:result.redemption}})
     await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
+    notify(a.payer,'The refund timelock passed and the requester refunded the escrow.')
   }
   // Opt-in public reputation after a trade that paid the payer. Publishes the
   // counterparty, an amount range and the week; never the merchant or amount.
@@ -412,6 +443,7 @@ export function useMarketplace(client, signer) {
     if(!view.dispute)throw new Error('Report the dispute before sending a case.')
     const signed=await signer.sign(privateTemplate(row.id.slice(6),'case',{agreement:a,events:row.value.events}))
     await deliverPrivate({client,signer,vault,to:a.arbitrator,signed});await reload()
+    notify(a.arbitrator,'A new wot-pay case needs your review.')
   }
   async function importArbitratorKey(row,secret) {
     row=await vault.read(row.id)

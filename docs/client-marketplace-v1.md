@@ -44,6 +44,13 @@ Every trade message after the proposal names the message it answers (`payload.re
 - After a trade that paid the payer, each party may publish a kind-3408 completion attestation (opt-in). It names the counterparty, an amount range and the week, plus a commitment derived from the private agreement id; never the merchant, UPI ID, exact amount or agreement.
 - A completion counts only when both parties attested the same commitment with matching terms. Each party is credited with the trust weight of the other, only when that other party is inside the viewer's graph, and one pair counts at most three times. Refunds and declined trades cannot be attested.
 
+## Notifications while wot-pay is closed
+
+- wot-pay cannot run in the background, so at each step that needs someone (new quote request, offer, accept, funded escrow, payment reported, declined escrow, problem reported, new case, settlement, refund) it also sends that person an ordinary NIP-17 chat message. Their usual Nostr app (Amethyst, Damus, 0xchat and others) shows it with a link back.
+- Notices name the step only: no UPI ID, merchant or amount. They are encrypted to the recipient, never block a trade step, and are not retried. wot-pay ignores them when reading trade messages.
+- After "I paid", the payer also receives a reminder in their own app with the confirmation and refund deadlines.
+- Set localStorage `wot-pay:nostr-notices` to `off` to stop sending them.
+
 ## External signers
 
 - Extensions and remote signers trade through the same NIP-17 messages: the app builds the rumor, the signer NIP-44-encrypts and signs the seal, and a one-time key wraps it. Opening checks that the seal's signer is the message author and that the rumor hashes correctly.

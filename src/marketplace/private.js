@@ -23,12 +23,25 @@ export function openPrivate(sk, wrap) {
 // never enters this app. Only the seal needs the user; the outer wrap uses a
 // one-time key. nip44: { encrypt(pubkey, text), decrypt(pubkey, text) }.
 const TWO_DAYS = 2 * 86400
-export async function wrapPrivateWith(signer, nip44, to, signed) {
-  if (!parsePrivate(signed) || signed.pubkey !== signer.pubkey || !/^[0-9a-f]{64}$/.test(to)) throw new Error('Invalid private message or recipient.')
-  const rumor = { created_at: Math.ceil(Date.now() / 1000), kind: 14, tags: [['p', to], ['subject', SUBJECT]], content: JSON.stringify(signed), pubkey: signer.pubkey }
+async function sealAndWrap(signer, nip44, to, content, tags) {
+  const rumor = { created_at: Math.ceil(Date.now() / 1000), kind: 14, tags: [['p', to], ...tags], content, pubkey: signer.pubkey }
   rumor.id = getEventHash(rumor)
   const seal = await signer.sign({ kind: 13, content: await nip44.encrypt(to, JSON.stringify(rumor)), created_at: Math.round(Date.now() / 1000 - Math.random() * TWO_DAYS), tags: [] })
   return createWrap(seal, to)
+}
+export async function wrapPrivateWith(signer, nip44, to, signed) {
+  if (!parsePrivate(signed) || signed.pubkey !== signer.pubkey || !/^[0-9a-f]{64}$/.test(to)) throw new Error('Invalid private message or recipient.')
+  return sealAndWrap(signer, nip44, to, JSON.stringify(signed), [['subject', SUBJECT]])
+}
+
+// A plain NIP-17 chat message, so the person's usual Nostr app shows it even
+// while wot-pay is closed. It has no trade subject, so wot-pay ignores it.
+const noticeText = text => { if (typeof text !== 'string' || !text || text.length > 500) throw new Error('Invalid notice.'); return text }
+export function wrapNotice(sk, to, text) {
+  return wrapEvent(sk, { publicKey: to }, noticeText(text))
+}
+export async function wrapNoticeWith(signer, nip44, to, text) {
+  return sealAndWrap(signer, nip44, to, noticeText(text), [])
 }
 export async function openPrivateWith(nip44, wrap) {
   try {

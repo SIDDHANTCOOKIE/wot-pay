@@ -1,5 +1,5 @@
 import { encryptBackup, decryptBackup, newRecoverySecret } from '../recovery.js'
-import { wrapPrivateWith, openPrivateWith } from './private.js'
+import { wrapPrivateWith, openPrivateWith, wrapNoticeWith } from './private.js'
 
 // Lets an external signer (NIP-07 extension or NIP-46 bunker) trade. Private
 // records are sealed with a random vault key that is stored only encrypted to
@@ -32,5 +32,6 @@ export function withMarketplace(signer, nip44, storage = globalThis.localStorage
     },
     wrapPrivate: (to, signed) => wrapPrivateWith(signer, nip44, to, signed),
     openPrivate: wrap => openPrivateWith(nip44, wrap),
+    wrapNotice: (to, text) => wrapNoticeWith(signer, nip44, to, text),
   }
 }

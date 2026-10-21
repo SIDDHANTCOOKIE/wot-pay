@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { OutputData, getEncodedToken } from '@cashu/cashu-ts'
-import { wrapPrivate, openPrivate } from '../marketplace/private.js'
+import { wrapPrivate, openPrivate, wrapNotice } from '../marketplace/private.js'
 import { encryptBackup, decryptBackup, newRecoverySecret } from '../recovery.js'
 import { childPubkeys } from '../marketplace/arbitrator-keys.js'
 import { testMint } from '../marketplace/test-mint.fixture.js'
@@ -60,20 +60,20 @@ function mount(hook, ...args) {
 }
 
 function network() {
-  const events = [], listingSubs = [], inboxes = new Map()
-  return owner => ({
+  const events = [], listingSubs = [], inboxes = new Map(), wraps = []
+  return Object.assign(owner => ({
     relays: ['wss://a.example', 'wss://b.example'],
     query: async filter => events.filter(e => filter.kinds.includes(e.kind)),
     subscribe: (filter, onEvent) => { listingSubs.push(onEvent); return () => {} },
     queryIdentity: async filter => events.filter(e => filter.kinds.includes(e.kind) && (!filter.authors || filter.authors.includes(e.pubkey))),
     subscribePrivate: (urls, pubkey, onEvent) => { inboxes.set(pubkey, [...(inboxes.get(pubkey) || []), onEvent]); return () => {} },
     publish: async e => { events.push(e); if (e.kind === 30078) listingSubs.forEach(f => f(e)); return { ok: 1, total: 1 } },
-    publishTo: async (urls, e) => { if (e.kind !== 1059) return events.push(e); for (const f of inboxes.get(e.tags.find(t => t[0] === 'p')[1]) || []) f(e) },
-  })
+    publishTo: async (urls, e) => { if (e.kind !== 1059) return events.push(e); wraps.push(e); for (const f of inboxes.get(e.tags.find(t => t[0] === 'p')[1]) || []) f(e) },
+  }), { wraps })
 }
 function deviceSigner() {
   const sk = generateSecretKey(), secret = newRecoverySecret()
-  return { sk, pubkey: getPublicKey(sk), sign: async t => finalizeEvent(t, sk), wrapPrivate: (to, signed) => wrapPrivate(sk, to, signed), openPrivate: w => openPrivate(sk, w),
+  return { sk, pubkey: getPublicKey(sk), sign: async t => finalizeEvent(t, sk), wrapPrivate: (to, signed) => wrapPrivate(sk, to, signed), openPrivate: w => openPrivate(sk, w), wrapNotice: (to, text) => wrapNotice(sk, to, text),
     sealLocal: async v => new TextDecoder().decode(await encryptBackup(v, secret)), openLocal: async s => decryptBackup(new TextEncoder().encode(s), secret) }
 }
 async function until(check, what) {
@@ -115,7 +115,7 @@ async function market({ requesterSigner = deviceSigner() } = {}) {
   expect(offered.view.offered).toBe(true)
   expect(offered.view.canFund).toBe(true)
   expect(p.api().listings.some(l => l.listingId === listing.listingId)).toBe(false)
-  return { r, p, wallet: () => wallet, trade, row: async who => who.api().trades[0], token: async () => {
+  return { r, p, net, requester, payer, wallet: () => wallet, trade, row: async who => who.api().trades[0], token: async () => {
     const w = await connectMint(offered.value.agreement)
     return getEncodedToken({ mint: 'https://mint.example', unit: 'sat', proofs: w.issue(OutputData.createRandomData(1010, w.getKeyset())) })
   } }
@@ -293,4 +293,25 @@ it('refuses a first funding attempt while new trades are paused', async () => {
   await expect(m.r.api().prepareLightning(await m.row(m.r))).rejects.toThrow('paused')
   await expect(m.r.api().fund(await m.row(m.r), await m.token())).rejects.toThrow('paused')
   expect((await m.row(m.r)).value.lightningOperation).toBeUndefined()
+})
+
+it('nudges each person through their usual Nostr app at every step, without payment details', async () => {
+  const { unwrapEvent } = await import('nostr-tools/nip17')
+  const m = await market()
+  const op = await m.r.api().prepareLightning(await m.row(m.r))
+  m.wallet().payInvoice(op.preview.quote.quote)
+  await m.r.api().completeLightning(await m.row(m.r))
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await m.p.api().action(await m.row(m.p), 'payment-report', { status: 'started' })
+  await m.p.api().reportPaid(await m.row(m.p))
+  await until(async () => (await m.row(m.r)).view.payerRelease, 'payer-signed release')
+  await m.r.api().confirmAndRelease(await m.row(m.r))
+  const inbox = who => m.net.wraps.filter(w => w.tags.some(t => t[0] === 'p' && t[1] === who.pubkey)).map(w => { try { return unwrapEvent(w, who.sk) } catch { return null } }).filter(r => r && !r.tags.some(t => t[0] === 'subject'))
+  const texts = who => inbox(who).map(r => r.content).join('\n')
+  await until(() => /settled/.test(texts(m.payer)) && /merchant has been paid/.test(texts(m.requester)), 'notices')
+  expect(texts(m.payer)).toMatch(/new private quote request[\s\S]*funded[\s\S]*Reminder: if the requester has not confirmed[\s\S]*settled/)
+  expect(texts(m.requester)).toMatch(/offered exact terms[\s\S]*merchant has been paid/)
+  for (const who of [m.payer, m.requester]) expect(texts(who)).not.toMatch(/merchant@upi|Merchant\b|500|1,000|1000 sats/)
+  // wot-pay itself ignores these chat messages.
+  expect((await m.row(m.r)).view.events.every(e => e.action)).toBe(true)
 })

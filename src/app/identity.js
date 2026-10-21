@@ -2,7 +2,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'nos
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import * as nip19 from 'nostr-tools/nip19'
 import { wrapToken, openToken } from '../dm.js'
-import { wrapPrivate, openPrivate } from '../marketplace/private.js'
+import { wrapPrivate, openPrivate, wrapNotice } from '../marketplace/private.js'
 import { encryptBackup, decryptBackup, digest } from '../recovery.js'
 import { withMarketplace } from '../marketplace/remote-signer.js'
 
@@ -30,6 +30,7 @@ export function localSigner() {
     openToken: (w) => openToken(w, sk),
     wrapPrivate: (to, signed) => wrapPrivate(sk, to, signed),
     openPrivate: w => openPrivate(sk, w),
+    wrapNotice: (to, text) => wrapNotice(sk, to, text),
     sealLocal: async value => new TextDecoder().decode(await encryptBackup(value, await vaultKey)),
     openLocal: async sealed => decryptBackup(new TextEncoder().encode(sealed), await vaultKey),
   }
