@@ -1,6 +1,7 @@
 import { KIND } from './kinds.js'
 import { latestFollow } from './follows.js'
 import { parse } from './events.js'
+import { COMPLETION_KIND, mutualCompletions } from './marketplace/attestations.js'
 
 // Web-of-trust ranking.
 // Trust comes from the viewer's follow graph (kind 3) plus public
@@ -12,6 +13,7 @@ export const MAX_PAIR_STAMPS = 3
 export const MAX_SETTLE_WEIGHT = 3
 export const MAX_DISPUTE_WEIGHT = 1
 export const OUTSIDE_WEIGHT = 0.05
+export const MAX_COMPLETION_WEIGHT = 3
 export const MAX_HOPS = HOP_WEIGHT.length - 1
 
 // followLists: kind-3 events. Keeps only the newest list per author.
@@ -101,26 +103,48 @@ export function tallyStamps(stamps, dist, events = []) {
   return tally
 }
 
-// Trust score for one pubkey. Distance sets the base, settles raise it
-// within a capped bonus. Unreviewed complaints remain visible without a penalty.
-export function trustScore(pk, dist, tally) {
+// Protected-trade completions attested by both parties (see
+// marketplace/attestations.js). Each party is credited with the trust weight
+// of the other, only when that other party is inside the viewer's graph, so a
+// farm of fresh keys completing trades with each other earns nothing. One pair
+// counts at most MAX_PAIR_STAMPS times.
+export function tallyCompletions(attestations, dist) {
+  const tally = new Map(), pairs = new Map()
+  const mutual = mutualCompletions(attestations).sort((a, b) => b.week - a.week || a.commitment.localeCompare(b.commitment))
+  for (const c of mutual) {
+    const pair = c.parties.join(':'), count = pairs.get(pair) || 0
+    if (count >= MAX_PAIR_STAMPS) continue
+    pairs.set(pair, count + 1)
+    const [a, b] = c.parties
+    for (const [subject, witness] of [[a, b], [b, a]])
+      if (dist.has(witness)) tally.set(subject, Math.min(MAX_COMPLETION_WEIGHT, (tally.get(subject) || 0) + weightOf(dist, witness)))
+  }
+  return tally
+}
+
+// Trust score for one pubkey. Distance sets the base, settles and attested
+// completions raise it within a capped bonus. Unreviewed complaints remain
+// visible without a penalty.
+export function trustScore(pk, dist, tally, completed = new Map()) {
   const t = tally.get(pk) || { settles: 0, disputes: 0 }
   const base = weightOf(dist, pk)
   // Legacy disputes are allegations, not reviewed misconduct. Display them,
   // but do not turn them into a ranking penalty.
-  return base * (1 + Math.log2(1 + Math.min(MAX_SETTLE_WEIGHT, t.settles)))
+  return base * (1 + Math.log2(1 + Math.min(MAX_SETTLE_WEIGHT, t.settles + (completed.get(pk) || 0))))
 }
 
-export function createRanker({ viewer, followLists = [], stamps = [], events = [] }) {
+export function createRanker({ viewer, followLists = [], stamps = [], events = [], completions = [] }) {
   const graph = buildGraph(followLists)
   const dist = hopDistances(graph, viewer)
   const parsed = stamps.map((s) => (s.type ? s : parse(s))).filter(Boolean)
   const tally = tallyStamps(parsed, dist, events.map((e) => (e.type ? e : parse(e))).filter(Boolean))
+  const completed = tallyCompletions(completions, dist)
 
   const explain = (pk) => ({
     hops: dist.get(pk) ?? null,
     ...(tally.get(pk) || { settles: 0, disputes: 0 }),
-    score: trustScore(pk, dist, tally),
+    completions: completed.get(pk) || 0,
+    score: trustScore(pk, dist, tally, completed),
   })
 
   // offers: parsed offer events. Drops expired ones, best first.
@@ -177,5 +201,6 @@ export async function loadTrustData(query, viewer, { depth = 2, maxAuthors = 100
   for (let i=0;i<claimIds.length;i+=CHUNK) {
     try { trades.push(...await query({kinds:[KIND.CANCEL, KIND.ACCEPT], '#e':claimIds.slice(i,i+CHUNK)})) } catch {}
   }
-  return { followLists, stamps, trades }
+  const completions = await queryAuthors(query, [COMPLETION_KIND], known)
+  return { followLists, stamps, trades, completions }
 }

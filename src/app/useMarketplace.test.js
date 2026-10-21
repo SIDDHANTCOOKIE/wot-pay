@@ -238,3 +238,18 @@ it('never releases on the requester\'s click without the payer\'s own signed rel
   await expect(m.r.api().confirmAndRelease(await m.row(m.r))).rejects.toThrow('signed release')
   expect((await m.row(m.r)).view.completed).toBe(false)
 })
+
+it('lets both parties attest a completed trade, which counts as one mutual completion', async () => {
+  const { mutualCompletions } = await import('../marketplace/attestations.js')
+  const m = await market()
+  await m.r.api().fund(await m.row(m.r), await m.token())
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await m.p.api().action(await m.row(m.p), 'payment-report', { status: 'started' })
+  await m.p.api().reportPaid(await m.row(m.p))
+  await until(async () => (await m.row(m.r)).view.payerRelease, 'payer-signed release')
+  await m.r.api().confirmAndRelease(await m.row(m.r))
+  await until(async () => (await m.row(m.p)).view.completed, 'payout verification')
+  const a = await m.r.api().attestCompletion(await m.row(m.r)), b = await m.p.api().attestCompletion(await m.row(m.p))
+  expect(JSON.stringify([a, b])).not.toContain('merchant@upi')
+  expect(mutualCompletions([a, b])).toHaveLength(1)
+})

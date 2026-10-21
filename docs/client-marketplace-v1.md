@@ -39,6 +39,11 @@ Every trade message after the proposal names the message it answers (`payload.re
 - "Where are my sats?" on every funded trade states who can move the escrow and checks its live state at the mint.
 - Published pilot limits (`VITE_PILOT_MAX_INR_PER_TRADE`, `VITE_PILOT_MAX_INR_PER_DAY`) are shown in the marketplace and enforced before quoting, proposing, accepting and funding. Protected trading stays disabled until both are set.
 
+## Reputation from completed trades
+
+- After a trade that paid the payer, each party may publish a kind-3408 completion attestation (opt-in). It names the counterparty, an amount range and the week, plus a commitment derived from the private agreement id; never the merchant, UPI ID, exact amount or agreement.
+- A completion counts only when both parties attested the same commitment with matching terms. Each party is credited with the trust weight of the other, only when that other party is inside the viewer's graph, and one pair counts at most three times. Refunds and declined trades cannot be attested.
+
 ## Implemented
 
 - Browse-first Pay a QR, Earn sats and My trades. Until protected trading is configured, scanning a QR posts a public no-escrow offer and the marketplace stays hidden.
@@ -66,7 +71,7 @@ A mint qualifies by caching `POST /v1/swap` indefinitely (NUT-19 `ttl: null`) or
 
 1. **Provider integration:** the automated mint is an in-process cryptographic fixture, not evidence of compatibility with a deployed mint. Validate restoration, fees, key rotation, outages and browser CORS against the chosen mint. A mint remains a custodial dependency.
 2. **Refund timelock risk:** a payer who paid but does not dispute before the refund date can lose the escrow to a dishonest requester's solo refund. The dispute prompt and arbitration response time are the mitigation; arbitration availability must be staffed accordingly.
-3. **Reputation:** existing history is participant-reported and can be collusive. Mutual completion attestations and reviewed outcomes are not implemented.
+3. **Reputation:** completion attestations prove two keys agreed a trade completed, not that a bank payment happened; colluding parties inside your graph can still vouch for each other within the pair cap. Arbitrator-reviewed outcomes, appeals and penalties are not implemented.
 4. **Client coordination:** local locks and observed reservations cannot enforce a global one-trade limit across devices or modified clients.
 5. **Arbitrator custody:** the seed must stay on an offline, backed-up device. Losing it loses arbitration for every trade using its keys (the requester timelock still refunds).
 6. **Device key security:** private escrow requires a device identity whose secret is in localStorage. External signers can browse only. Complete a security review before live funds.

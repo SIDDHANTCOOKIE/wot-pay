@@ -175,3 +175,16 @@ it('graph and editor agree on equal-time lists independent of arrival order',()=
  expect([...buildGraph([a,b]).get(V)]).toEqual([A]);expect([...buildGraph([b,a]).get(V)]).toEqual([A])
  expect(buildGraph([null,{...a,created_at:Math.floor(Date.now()/1000)+61}]).size).toBe(0)
 })
+it('credits attested completions only through witnesses inside the viewer graph, capped per pair', async () => {
+  const { tallyCompletions, hopDistances } = await import('./wot.js')
+  const c = (i, a, b) => ({ commitment: String(i).padStart(64, '0'), pubkey: a, counterparty: b, amount: 'under-500', week: 100 })
+  const both = (i, a, b) => [c(i, a, b), c(i, b, a)]
+  const [me, friend, stranger, sybilA, sybilB] = ['1', '2', '3', '4', '5'].map(x => x.repeat(64))
+  const dist = hopDistances(new Map([[me, new Set([friend])]]), me)
+  const tally = tallyCompletions([...both(1, friend, stranger), ...both(2, sybilA, sybilB)], dist)
+  expect(tally.get(stranger)).toBeGreaterThan(0)
+  expect(tally.has(friend)).toBe(false)
+  expect(tally.has(sybilA) || tally.has(sybilB)).toBe(false)
+  const repeated = tallyCompletions([1, 2, 3, 4, 5, 6].flatMap(i => both(i, friend, stranger)), dist)
+  expect(repeated.get(stranger)).toBe(3)
+})

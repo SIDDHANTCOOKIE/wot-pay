@@ -4,6 +4,7 @@ import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
 import { pickArbitratorKey } from '../marketplace/arbitrator-keys.js'
+import { completionTemplate } from '../marketplace/attestations.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
 import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
@@ -365,6 +366,18 @@ export function useMarketplace(client, signer) {
     row=await save(row,{payouts:result.payouts,resolutionOperation:operation,evidence:{...row.value.evidence,redemption:result.redemption}})
     await sendTrade(row,'payout',{operation,payouts:result.payouts});await reload()
   }
+  // Opt-in public reputation after a trade that paid the payer. Publishes the
+  // counterparty, an amount range and the week; never the merchant or amount.
+  async function attestCompletion(row) {
+    row=await vault.read(row.id)
+    const a=row.value.agreement,view=viewOf(row)
+    if(!view.completed||!(row.value.resolutionOperation?.allocation.payerSats>0))throw new Error('Only completed trades that paid the payer can be attested.')
+    if(row.value.attestation)return row.value.attestation
+    const signed=await signer.sign(await completionTemplate(a,row.id.slice(6),signer.pubkey,row.value.evidence.redemption.verifiedAt))
+    await client.publish(signed)
+    await save(row,{attestation:signed});await reload()
+    return signed
+  }
   async function verifyIncomingPayout(row) {
     row=await vault.read(row.id)
     const a=row.value.agreement,message=row.value.events.map(parsePrivate).filter(e=>e?.action==='payout').at(-1)
@@ -420,5 +433,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow,reportPaid:exclusive(reportPaid),confirmAndRelease:exclusive(confirmAndRelease)}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow,reportPaid:exclusive(reportPaid),confirmAndRelease:exclusive(confirmAndRelease),attestCompletion:exclusive(attestCompletion)}
 }

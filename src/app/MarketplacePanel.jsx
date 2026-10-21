@@ -66,7 +66,7 @@ export default function MarketplacePanel({ market, signer, board, mode = 'earn',
       <h3>{listing.type==='payer-listing'?`${rupees(listing.minPaise/100)}–${rupees(listing.maxPaise/100)}`:`Pay ${rupees(listing.paise/100)} · receive ${sats(listing.sats)}`}</h3>
       {listing.type==='payer-listing'&&<p>{listing.rateType==='fixed'?`${listing.rate} sats per ₹`:`Market rate ${Number(listing.rate)>=0?'+':''}${listing.rate}%`}</p>}
       {listing.type==='payer-listing'&&<p className="dim">{estimate(listing)?`${sats(estimate(listing).totalSats)} platform fee: 0; mint costs quoted before acceptance.`:'Enter an amount; market prices need a fresh reference.'}</p>}
-      <p className="dim">{new URL(listing.mint).hostname} · {board.ranker.explain(listing.pubkey).hops===1?'You follow them':'Review their trust history'}</p>
+      <p className="dim">{new URL(listing.mint).hostname} · {board.ranker.explain(listing.pubkey).hops===1?'You follow them':'Review their trust history'}{board.ranker.explain(listing.pubkey).completions>0?' · completed protected trades with people you trust':''}</p>
       <button className="btn primary" disabled={busy||!!signer&&(!market.supported||!market.inbox)} onClick={()=>{if(requireAccount())setSelected(listing.id)}}>Request a quote</button>
       {selected===listing.id&&<div>
         {listing.type==='payer-listing'&&<label className="field">Payment amount (₹)<input value={amount} onChange={e=>setAmount(e.target.value)}/></label>}

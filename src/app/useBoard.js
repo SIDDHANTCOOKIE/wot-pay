@@ -126,6 +126,7 @@ export function useBoard(trustRoot, me, revision = 0) {
         followLists: trust.followLists,
         events: [...(trust.trades || []), ...all],
         stamps: [...trust.stamps, ...all.filter((e) => e.type === 'settled' || e.type === 'disputed')],
+        completions: trust.completions || [],
       }),
     [trustRoot, me, trust, all],
   )
