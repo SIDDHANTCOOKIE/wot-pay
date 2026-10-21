@@ -100,10 +100,10 @@ async function market({ requesterSigner = deviceSigner() } = {}) {
   let wallet
   connectMint.mockImplementation(async agreement => (wallet ||= testMint(agreement)))
   const net = network(), requester = requesterSigner, payer = deviceSigner()
-  const r = mount(useMarketplace, net(requester), requester), p = mount(useMarketplace, net(payer), payer)
-  mounted.push(r, p)
-  await r.api().enableInbox(); await p.api().enableInbox()
-  await until(() => r.api().inbox && p.api().inbox, 'inboxes')
+  const r = mount(useMarketplace, net(requester), requester), p = mount(useMarketplace, net(payer), payer), arb = mount(useMarketplace, net(arbitrator), arbitrator)
+  mounted.push(r, p, arb)
+  await r.api().enableInbox(); await p.api().enableInbox(); await arb.api().enableInbox()
+  await until(() => r.api().inbox && p.api().inbox && arb.api().inbox, 'inboxes')
   const listing = { v: 3, type: 'payer-listing', listingId: newRecoverySecret(), mint: 'https://mint.example', minPaise: 100, maxPaise: 100000, rateType: 'fixed', rate: '2', available: true, expiresAt: Math.floor(Date.now() / 1000) + 3600 }
   await p.api().publishListing(listing)
   const seen = await until(() => r.api().listings.find(l => l.listingId === listing.listingId), 'listing')
@@ -115,7 +115,7 @@ async function market({ requesterSigner = deviceSigner() } = {}) {
   expect(offered.view.offered).toBe(true)
   expect(offered.view.canFund).toBe(true)
   expect(p.api().listings.some(l => l.listingId === listing.listingId)).toBe(false)
-  return { r, p, net, requester, payer, wallet: () => wallet, trade, row: async who => who.api().trades[0], token: async () => {
+  return { r, p, arb, net, requester, payer, arbitrator, wallet: () => wallet, trade, row: async who => who.api().trades[0], token: async () => {
     const w = await connectMint(offered.value.agreement)
     return getEncodedToken({ mint: 'https://mint.example', unit: 'sat', proofs: w.issue(OutputData.createRandomData(1010, w.getKeyset())) })
   } }
@@ -314,4 +314,28 @@ it('nudges each person through their usual Nostr app at every step, without paym
   for (const who of [m.payer, m.requester]) expect(texts(who)).not.toMatch(/merchant@upi|Merchant\b|500|1,000|1000 sats/)
   // wot-pay itself ignores these chat messages.
   expect((await m.row(m.r)).view.events.every(e => e.action)).toBe(true)
+})
+
+it('escalates a long case in relay-sized batches and shares encrypted evidence with the arbitrator', async () => {
+  const { blossom, PNG } = await import('../marketplace/evidence.fixture.js')
+  const { SUGGESTED_SERVERS } = await import('../recovery.js')
+  const { MAX_WRAP_BYTES } = await import('../marketplace/private.js')
+  const host = blossom()
+  vi.stubGlobal('fetch', host.fetcher)
+  const m = await market()
+  await m.r.api().vault.write('recovery-config', { servers: SUGGESTED_SERVERS, secret: newRecoverySecret(), savedOffline: true })
+  await m.r.api().fund(await m.row(m.r), await m.token())
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await m.p.api().action(await m.row(m.p), 'dispute', { reason: 'Merchant says nothing arrived' })
+  await until(async () => (await m.row(m.r)).view.dispute, 'dispute')
+  for (let i = 0; i < 40; i++) await m.r.api().action(await m.row(m.r), 'evidence', { note: `Statement part ${i}: ${'x'.repeat(900)}` })
+  await m.r.api().attachEvidence(await m.row(m.r), new File([PNG], 'upi-receipt.png', { type: 'image/png' }), 'UPI receipt')
+  await m.r.api().escalate(await m.row(m.r))
+  const cases = m.net.wraps.filter(w => w.tags.some(t => t[1] === m.arbitrator.pubkey))
+  expect(cases.every(w => JSON.stringify(w).length <= MAX_WRAP_BYTES)).toBe(true)
+  const sent = (await m.row(m.r)).value.events.length
+  const merged = await until(async () => { const row = m.arb.api().trades[0]; return row?.value.events.length === sent && row }, 'merged case')
+  expect(merged.view.dispute).toBeTruthy()
+  const manifest = merged.view.events.find(e => e.payload.attachments)?.payload.attachments[0]
+  for (const who of [m.arb, m.p]) expect(new Uint8Array(await (await who.api().openEvidence(manifest)).arrayBuffer())).toEqual(PNG)
 })

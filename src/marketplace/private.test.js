@@ -32,3 +32,13 @@ it('encrypts persisted secrets, preserves revisions and retries identical gift-w
   await deliverPrivate(args)
   expect(attempts[0]).toBe(attempts[1])
 })
+it('refuses a message too large for relays before saving it to the outbox', async () => {
+  const { MAX_WRAP_BYTES } = await import('./private.js')
+  const { sign, identities } = await testTrade()
+  const secret = newRecoverySecret()
+  const signer = { ...identities.requester, sealLocal: value => encryptBackup(value,secret), openLocal: bytes => decryptBackup(bytes,secret), wrapPrivate: (to,event) => wrapPrivate(identities.requester.sk,to,event) }
+  const vault = createVault(signer,new IDBFactory()), huge = sign('requester','evidence',{ note: '"'.repeat(20000) })
+  expect(JSON.stringify(wrapPrivate(identities.requester.sk,identities.payer.pubkey,huge)).length).toBeGreaterThan(MAX_WRAP_BYTES)
+  await expect(deliverPrivate({ client: {}, signer, vault, to: identities.payer.pubkey, signed: huge })).rejects.toThrow('too large')
+  expect(await vault.read(`outbox:${huge.id}:${identities.payer.pubkey}`)).toBeNull()
+})

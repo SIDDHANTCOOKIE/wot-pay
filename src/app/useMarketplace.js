@@ -5,6 +5,7 @@ import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
 import { pickArbitratorKey } from '../marketplace/arbitrator-keys.js'
 import { completionTemplate } from '../marketplace/attestations.js'
+import { sealAttachment, uploadAttachment, openAttachment, MAX_ATTACHMENTS } from '../marketplace/evidence.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
 import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits, assertNewTrades } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
@@ -13,7 +14,7 @@ import { backupOperation, syncPrivateBackup } from '../marketplace/backup.js'
 import { requireFreeSlot, validateResolution, payerCommitted } from '../marketplace/protocol.js'
 import { getEncodedToken, getPubKeyFromPrivKey } from '@cashu/cashu-ts'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
-import { resolutionFingerprint, verifyPayout, prepareClaim, completeClaim } from '../marketplace/escrow.js'
+import { resolutionFingerprint, verifyPayout, prepareClaim, completeClaim, wireOperation, hydrateOperation } from '../marketplace/escrow.js'
 
 export function useMarketplace(client, signer) {
   const [publicEvents,setPublicEvents] = useState(new Map())
@@ -126,6 +127,7 @@ export function useMarketplace(client, signer) {
       if(relays.length)await client.publishTo(relays,await signer.wrapNotice(to,`wot-pay: ${text} ${link}`))
     })().catch(()=>{})
   }
+  const CASE_BATCH_CHARS=15000
   const when=seconds=>new Date(seconds*1000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})
   async function enableInbox() {
     const signed=await signer.sign({kind:10050,created_at:Math.floor(Date.now()/1000),tags:client.relays.map(url=>['relay',url]),content:''})
@@ -228,6 +230,7 @@ export function useMarketplace(client, signer) {
   const trades=records.filter(r=>r.value.kind==='trade').map(row=>({...row,view:viewOf(row,clock)}))
   const save=async(row,patch)=>vault.write(row.id,{...row.value,...patch},row.revision)
   const sendTrade=async(row,action,payload)=>{
+    if(payload.operation)payload={...payload,operation:wireOperation(payload.operation)}
     const a=row.value.agreement,signed=await signer.sign(privateTemplate(row.id.slice(6),action,payload))
     const disputed=viewOf(row).dispute
     const next=await save(row,own(row,signed))
@@ -337,8 +340,11 @@ export function useMarketplace(client, signer) {
     row=await save(row,{resolutionOperation:operation})
     await sendTrade(row,'resolution',{operation});await reload()
   }
+  // A peer's resolution arrives without its mint preview; rebuild it locally.
+  const hydrate=async(row,operation)=>operation.preview?operation:hydrateOperation(await mintFor(row.value.agreement),row.value.agreement,row.value.proofs,operation)
   async function approveResolution(row,operation) {
     row=await vault.read(row.id)
+    operation=await hydrate(row,operation)
     const a=row.value.agreement,view=viewOf(row)
     validateResolution(a,view,operation.allocation,signer.pubkey)
     const fingerprint=await resolutionFingerprint(a,row.value.proofs,operation)
@@ -379,6 +385,7 @@ export function useMarketplace(client, signer) {
     if(!config.protectedEnabled)throw new Error('Mint settlement is disabled until deployment verification.')
     row=await vault.read(row.id)
     const wallet=await mintFor(row.value.agreement)
+    operation=await hydrateOperation(wallet,row.value.agreement,row.value.proofs,operation)
     validateResolution(row.value.agreement,viewOf(row),operation.allocation,signer.pubkey)
     const result=await completeResolution(wallet,row.value.agreement,row.value.proofs,operation,op=>backupOperation(vault,signer,op,fetch,client))
     row=await save(row,{payouts:result.payouts,evidence:{...row.value.evidence,redemption:result.redemption}})
@@ -418,7 +425,7 @@ export function useMarketplace(client, signer) {
     row=await vault.read(row.id)
     const a=row.value.agreement,message=row.value.events.map(parsePrivate).filter(e=>e?.action==='payout').at(-1)
     if(!message)throw new Error('No payout receipt has arrived.')
-    const wallet=await mintFor(a),{operation,payouts}=message.payload
+    const wallet=await mintFor(a),{payouts}=message.payload,operation=await hydrateOperation(wallet,a,row.value.proofs,message.payload.operation)
     const redemption=await verifyPayout(wallet,a,row.value.proofs,operation,payouts)
     await save(row,{payouts,resolutionOperation:operation,evidence:{...row.value.evidence,redemption}});await reload()
   }
@@ -437,13 +444,38 @@ export function useMarketplace(client, signer) {
     await save(row,{claimResult:result});await reload()
     return getEncodedToken({mint:a.mint,proofs:result.keep,unit:'sat'})
   }
+  // Cases travel in batches small enough for relays. Each batch repeats the
+  // proposal, the payer's commitment and the dispute, so the arbitrator can
+  // check every batch on its own; batches merge into one case.
   async function escalate(row) {
     row=await vault.read(row.id)
-    const a=row.value.agreement,view=viewOf(row)
+    const a=row.value.agreement,view=viewOf(row),id=row.id.slice(6)
     if(!view.dispute)throw new Error('Report the dispute before sending a case.')
-    const signed=await signer.sign(privateTemplate(row.id.slice(6),'case',{agreement:a,events:row.value.events}))
-    await deliverPrivate({client,signer,vault,to:a.arbitrator,signed});await reload()
+    const anchorIds=new Set([view.proposal?.id,view.acceptance?.id,view.dispute.id].filter(Boolean))
+    const anchors=row.value.events.filter(e=>anchorIds.has(e.id)),size=events=>JSON.stringify({agreement:a,events}).length
+    const batches=[[]]
+    for(const e of row.value.events.filter(e=>!anchorIds.has(e.id))) {
+      if(batches.at(-1).length&&size([...anchors,...batches.at(-1),e])>CASE_BATCH_CHARS)batches.push([])
+      batches.at(-1).push(e)
+    }
+    for(const [i,batch] of batches.entries()) {
+      const signed=await signer.sign(privateTemplate(id,'case',{agreement:a,events:[...anchors,...batch],part:i+1,parts:batches.length}))
+      await deliverPrivate({client,signer,vault,to:a.arbitrator,signed})
+    }
+    await reload()
     notify(a.arbitrator,'A new wot-pay case needs your review.')
+  }
+  // Encrypted evidence files for a case, stored on the sender's recovery hosts.
+  async function attachEvidence(row,file,note='') {
+    row=await vault.read(row.id)
+    const view=viewOf(row),config=await vault.read('recovery-config')
+    if(!view.offered||view.completed)throw new Error('Evidence is for active accepted trades.')
+    if(!config?.value.savedOffline)throw new Error('Set up encrypted backups in Recovery settings first; evidence uses the same hosts.')
+    const mine=view.events.filter(e=>e.pubkey===signer.pubkey&&e.action==='evidence').reduce((n,e)=>n+(e.payload.attachments?.length||0),0)
+    if(mine>=MAX_ATTACHMENTS)throw new Error(`You can attach up to ${MAX_ATTACHMENTS} files per trade.`)
+    const sealed=await sealAttachment(new Uint8Array(await file.arrayBuffer()),file.type,file.name)
+    const manifest=await uploadAttachment(sealed,config.value.servers,signer)
+    await action(row,'evidence',{note,attachments:[manifest]})
   }
   async function importArbitratorKey(row,secret) {
     row=await vault.read(row.id)
@@ -470,5 +502,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow,reportPaid:exclusive(reportPaid),confirmAndRelease:exclusive(confirmAndRelease),attestCompletion:exclusive(attestCompletion)}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow,reportPaid:exclusive(reportPaid),confirmAndRelease:exclusive(confirmAndRelease),attestCompletion:exclusive(attestCompletion),attachEvidence:exclusive(attachEvidence),openEvidence:openAttachment}
 }

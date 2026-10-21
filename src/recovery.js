@@ -47,7 +47,7 @@ export function recoveryServers(values) {
   return urls
 }
 
-async function readVerified(server, hash, fetcher) {
+export async function readVerified(server, hash, fetcher) {
   // Blossom may redirect reads to a CDN (BUD-01). Following is safe because
   // the bytes are checked against the expected SHA-256 below.
   const response = await fetcher(`${server}/${hash}`, { signal: AbortSignal.timeout(15000), credentials: 'omit', cache: 'no-store', redirect: 'follow' })

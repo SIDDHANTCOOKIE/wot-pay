@@ -78,3 +78,18 @@ it('keeps the 2-of-3 release valid after the locktime',async()=>{
   const two=await signResolution(t.agreement,t.send,await signResolution(t.agreement,t.send,op,t.keys.payer.secret),t.keys.arbitrator.secret)
   expect((await completeResolution(t.wallet,t.agreement,t.send,two,backup,after+1)).payouts.payer.reduce((n,p)=>n+p.amount,0)).toBe(1000)
 })
+it('sends resolutions without the mint preview and rebuilds it, rejecting substituted outputs',async()=>{
+  const { wireOperation, hydrateOperation } = await import('./escrow.js')
+  const { wrapPrivate } = await import('./private.js')
+  const t=await funded()
+  const op=await signResolution(t.agreement,t.send,await prepareResolution(t.wallet,t.agreement,t.send,{requesterSats:400,payerSats:600,mintFeeSats:0,reason:'split'}),t.keys.payer.secret)
+  const wire=wireOperation(op)
+  expect(wire.preview).toBeUndefined()
+  const wrapped=op=>JSON.stringify(wrapPrivate(t.identities.payer.sk,t.agreement.requester,t.sign('payer','resolution-approve',{operation:op}))).length
+  expect(wrapped(wire)).toBeLessThan(wrapped(op)*0.7)
+  const rebuilt=await hydrateOperation(t.wallet,t.agreement,t.send,wire)
+  const two=await signResolution(t.agreement,t.send,rebuilt,t.keys.requester.secret)
+  expect((await completeResolution(t.wallet,t.agreement,t.send,two,backup)).redemption.verified).toBe(true)
+  const swapped={...wire,groups:{requester:wire.groups.payer,payer:wire.groups.requester}}
+  await expect(hydrateOperation(t.wallet,t.agreement,t.send,swapped)).rejects.toThrow()
+})

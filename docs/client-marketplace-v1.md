@@ -44,6 +44,13 @@ Every trade message after the proposal names the message it answers (`payload.re
 - After a trade that paid the payer, each party may publish a kind-3408 completion attestation (opt-in). It names the counterparty, an amount range and the week, plus a commitment derived from the private agreement id; never the merchant, UPI ID, exact amount or agreement.
 - A completion counts only when both parties attested the same commitment with matching terms. Each party is credited with the trust weight of the other, only when that other party is inside the viewer's graph, and one pair counts at most three times. Refunds and declined trades cannot be attested.
 
+## Message size, cases and evidence
+
+- Gift-wrapped messages grow about 2.5x over the signed message, and many relays reject events above 64 KB. Messages whose wrap would exceed 60 KB are refused before entering the outbox instead of failing at every relay.
+- Payout and release messages no longer carry the mint preview, which repeated the escrow proofs and payout outputs; the receiver rebuilds it and validation requires it to match the signed package. A split payout's wrap fell from about 55 KB to well under that.
+- Dispute cases go to the arbitrator in batches of about 15 KB, each repeating the proposal, the payer's commitment and the dispute so it can be checked on its own; the batches merge into one case.
+- Evidence files (PNG, JPEG, WebP or PDF, up to 5 MB, six per person per trade) are encrypted with their own key and stored on the sender's three recovery hosts with two verified copies. Only a manifest with the key travels inside the encrypted trade message. Files are checked against their real bytes, verified by hash, and shown as images or offered as downloads, never rendered as pages.
+
 ## Notifications while wot-pay is closed
 
 - wot-pay cannot run in the background, so at each step that needs someone (new quote request, offer, accept, funded escrow, payment reported, declined escrow, problem reported, new case, settlement, refund) it also sends that person an ordinary NIP-17 chat message. Their usual Nostr app (Amethyst, Damus, 0xchat and others) shows it with a link back.

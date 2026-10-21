@@ -138,6 +138,22 @@ export async function validateResolutionOperation(agreement, proofs, operation) 
   return { pkg, preview }
 }
 
+// Peers send resolutions without the mint preview: it repeats the escrow
+// proofs the receiver already holds and the outputs in groups, and roughly
+// doubled the message, pushing payouts toward relay size limits. The receiver
+// rebuilds it and validation then requires it to match the signed package.
+export const wireOperation = ({ preview, ...operation }) => operation
+export async function hydrateOperation(wallet, agreement, proofs, operation) {
+  if (operation.preview) return operation
+  if (operation.kind !== 'resolution') throw new Error('Unknown operation from peer.')
+  validateLockedProofs(agreement, proofs)
+  const outputs = [...operation.groups.requester, ...operation.groups.payer].map(o => recipientOutput(o, agreement.escrowKeys[operation.groups.requester.includes(o) ? 'requester' : 'payer']))
+  const preview = await wallet.prepareSwapToReceive(proofs, { requireDleq: true }, { type: 'custom', data: outputs })
+  const hydrated = { ...operation, preview: serializeSwapPreview(preview) }
+  await validateResolutionOperation(agreement, proofs, hydrated)
+  return hydrated
+}
+
 export async function signResolution(agreement, proofs, operation, privateKey) {
   const { pkg } = await validateResolutionOperation(agreement, proofs, operation)
   if (!Object.values(agreement.escrowKeys).includes(bytesToHex(getPubKeyFromPrivKey(hexToBytes(privateKey))))) throw new Error('This key is not a party to the escrow.')

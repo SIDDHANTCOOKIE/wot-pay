@@ -63,11 +63,18 @@ export function inboxRelays(events, owner) {
   }))].slice(0, 8)
 }
 
+// Many relays reject events above 64 KB; gift wraps grow about 2.5x over the
+// signed message, so refuse early rather than leave a send stuck in the outbox.
+export const MAX_WRAP_BYTES = 60000
 export async function deliverPrivate({ client, signer, vault, to, signed }) {
   // Save before discovery: an unavailable inbox must not erase a pending send.
   const id = `outbox:${signed.id}:${to}`
   let operation = await vault.read(id)
-  if (!operation) operation = await vault.write(id, { wrap: await signer.wrapPrivate(to, signed), to, signed, status: 'pending' })
+  if (!operation) {
+    const wrap = await signer.wrapPrivate(to, signed)
+    if (JSON.stringify(wrap).length > MAX_WRAP_BYTES) throw new Error('This message is too large for relays. Shorten it or split it before sending.')
+    operation = await vault.write(id, { wrap, to, signed, status: 'pending' })
+  }
   if (operation.value.status === 'delivered') return operation
   const relays = inboxRelays(await client.queryIdentity({ kinds: [10050], authors: [to] }), to)
   if (!relays.length) throw new Error('Recipient has not enabled a Nostr private inbox. Your message is saved for retry.')
