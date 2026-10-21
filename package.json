@@ -11,7 +11,8 @@
     "test": "vitest run",
     "smoke": "node src/smoke.js",
     "agent": "node src/agent/daemon.js",
-    "check:mint": "node scripts/check-mint.mjs"
+    "check:mint": "node scripts/check-mint.mjs",
+    "arbitrator:keys": "node scripts/arbitrator-keys.mjs"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^4.11.0",

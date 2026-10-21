@@ -32,7 +32,7 @@ it('runs payer offer → funding → release → recipient claim with replicated
   expect(tradeView(t.agreement,t.id,events).canFund).toBe(true)
   const input=wallet.issue(OutputData.createRandomData(1010,wallet.getKeyset()))
   const fundingOp=await prepareFunding(wallet,t.agreement,input)
-  await r.vault.write('funding-operation',fundingOp)
+  await r.vault.write(`trade:${t.id}`,{kind:'trade',agreement:t.agreement,fundingOperation:fundingOp,events:[],evidence:{}})
   const funded=await completeFunding(wallet,t.agreement,fundingOp,r.backup)
   const notice=t.sign('requester','funding',{proofs:funded.send,re:offer.id})
   expect(parsePrivate(notice).payload.proofs).toEqual(funded.send)
@@ -53,7 +53,7 @@ it('runs payer offer → funding → release → recipient claim with replicated
   expect(await completeClaim(wallet,t.agreement,claim,t.keys.payer.secret,r.backup)).toEqual(collected)
   const restored=await findRemoteSnapshots(r.client,r.signer,r.secret,r.fetcher)
   expect(restored.operation.kind).toBe('claim')
-  expect(restored.records.find(row=>row.id==='funding-operation').value).toEqual(fundingOp)
+  expect(restored.records.find(row=>row.id===`trade:${t.id}`).value.fundingOperation).toEqual(fundingOp)
 })
 
 it('refuses stale, wrong-operation and same-host backup acknowledgements before consuming funding inputs',async()=>{
@@ -103,4 +103,26 @@ it('does not recover an older signing journal when a newer signed backup pointer
   }
   r.client.queryIdentity=async()=>pointers
   await expect(findRemoteSnapshots(r.client,r.signer,r.secret,r.fetcher)).rejects.toThrow('newest recovery snapshot')
+})
+
+it('backs up a trade operation with only that trade, and restores full plus newer per-trade snapshots', async () => {
+  const t = await testTrade(), r = await recovery(t)
+  const [a, b] = ['a', 'b'].map(c => c.repeat(64))
+  await r.vault.write(`trade:${a}`, { kind: 'trade', secret: 'key A' })
+  await r.vault.write(`trade:${b}`, { kind: 'trade', secret: 'key B' })
+  await r.backup({ kind: 'automatic-snapshot', revision: 'full' })
+  const rowA = await r.vault.read(`trade:${a}`)
+  await r.vault.write(`trade:${a}`, { ...rowA.value, secret: 'key A, now signed' }, rowA.revision)
+  const op = { kind: 'resolution', agreementId: a, revision: 'x' }
+  await r.backup(op)
+  // The scoped blob holds trade A only, however many trades the device has.
+  const scoped = [...r.blobs.values()].at(-1)
+  const { decryptBackup } = await import('../recovery.js')
+  expect((await decryptBackup(scoped, r.secret)).records.map(row => row.id)).toEqual([`trade:${a}`])
+  const restored = await findRemoteSnapshots(r.client, r.signer, r.secret, r.fetcher)
+  const byId = id => restored.records.find(row => row.id === id).value.secret
+  expect([byId(`trade:${a}`), byId(`trade:${b}`), restored.operation.agreementId]).toEqual(['key A, now signed', 'key B', a])
+  // Losing the newest copy of trade A must stop recovery rather than roll it back.
+  for (const key of [...r.blobs.keys()]) if (r.blobs.get(key) === scoped) r.blobs.delete(key)
+  await expect(findRemoteSnapshots(r.client, r.signer, r.secret, r.fetcher)).rejects.toThrow('newest recovery snapshot')
 })

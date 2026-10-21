@@ -3,6 +3,7 @@ import { listingTemplate, parseListing, currentListings, contentHash, privateTem
 import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
+import { pickArbitratorKey } from '../marketplace/arbitrator-keys.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
 import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
@@ -160,8 +161,8 @@ export function useMarketplace(client, signer) {
     assertWithinLimits(config,request.payload.paise,await recentPaise())
     // A payer's proposal is also the payer's acceptance of these exact terms.
     if(ownRole==='payer')await commitAsPayer(null)
-    const now=Math.floor(Date.now()/1000)
-    const agreement=validateAgreement({v:3,termsVersion:TERMS_VERSION,nonce:newRecoverySecret(),listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:panel.escrowKey},mint:listing.mint,paise:request.payload.paise,payerSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+QUOTE_LIFETIME,refundAfter:now+QUOTE_LIFETIME+REFUND_DELAY})
+    const now=Math.floor(Date.now()/1000),nonce=newRecoverySecret()
+    const agreement=validateAgreement({v:3,termsVersion:TERMS_VERSION,nonce,listingId:listing.listingId,requester,payer,arbitrator:panel.pubkey,escrowKeys:{requester:ownRole==='requester'?escrowKey.pubkey:request.payload.escrowKey,payer:ownRole==='payer'?escrowKey.pubkey:request.payload.escrowKey,arbitrator:pickArbitratorKey(panel.escrowKeys,nonce)},mint:listing.mint,paise:request.payload.paise,payerSats,fundingFeeSats,releaseFeeSats,escrowSats:payerSats+releaseFeeSats,destination:listing.type==='payer-listing'?request.payload.destination:localListing.value.destination,createdAt:now,quoteExpiresAt:now+QUOTE_LIFETIME,refundAfter:now+QUOTE_LIFETIME+REFUND_DELAY})
     const id=await contentHash(agreement),signed=await signer.sign(privateTemplate(id,'proposal',{agreement,requestId:request.agreementId},now))
     await vault.write(`trade:${id}`,{kind:'trade',agreement,escrowKey,events:[signed],received:{[signed.id]:now},evidence:{}})
     await vault.write(requestRow.id,{...requestRow.value,proposal:signed},requestRow.revision)

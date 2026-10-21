@@ -3,7 +3,10 @@ import { httpsOrigin } from './protocol.js'
 export function marketplaceConfig(env = import.meta.env) {
   let panel = [], restoreMints = []
   try { panel = JSON.parse(env.VITE_ARBITRATOR_PANEL || '[]') } catch { /* Invalid config disables agreement creation. */ }
-  panel = Array.isArray(panel) ? panel.filter(p => p && /^[0-9a-f]{64}$/.test(p.pubkey) && /^(02|03)[0-9a-f]{64}$/.test(p.escrowKey) && typeof p.name === 'string' && p.name.length <= 80) : []
+  // escrowKeys: per-trade public keys derived offline (scripts/arbitrator-keys.mjs).
+  // A single legacy escrowKey is accepted as a one-key list.
+  const key = k => /^(02|03)[0-9a-f]{64}$/.test(k)
+  panel = Array.isArray(panel) ? panel.map(p => p && { ...p, escrowKeys: Array.isArray(p.escrowKeys) ? p.escrowKeys : [p.escrowKey] }).filter(p => p && /^[0-9a-f]{64}$/.test(p.pubkey) && p.escrowKeys.length >= 1 && p.escrowKeys.length <= 1024 && p.escrowKeys.every(key) && new Set(p.escrowKeys).size === p.escrowKeys.length && typeof p.name === 'string' && p.name.length <= 80) : []
   // Only mints whose lost-response NUT-09 restoration passed a live test.
   try { restoreMints = JSON.parse(env.VITE_RESTORE_VERIFIED_MINTS || '[]') } catch { /* Invalid config disables restore-only mints. */ }
   restoreMints = Array.isArray(restoreMints) ? restoreMints.filter(m => { try { return httpsOrigin(m) === m } catch { return false } }) : []
@@ -24,5 +27,5 @@ export function assertWithinLimits(config, paise, recentPaise = 0) {
 }
 
 export function assertDeploymentAgreement(config, agreement) {
-  if(!config.ready||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKey===agreement.escrowKeys.arbitrator))throw new Error('Agreement must use the configured independent arbitrator panel.')
+  if(!config.ready||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKeys.includes(agreement.escrowKeys.arbitrator)))throw new Error('Agreement must use the configured independent arbitrator panel.')
 }

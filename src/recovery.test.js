@@ -39,3 +39,18 @@ it('does not trust an upload receipt when the server returns different bytes', a
   expect(result.verifiedCopies).toBe(0)
   await expect(decryptBackup(bytes, newRecoverySecret())).rejects.toThrow()
 })
+it('rejects hosts known to share an operator and accepts the suggested independent set', async () => {
+  const { recoveryServers, SUGGESTED_SERVERS } = await import('./recovery.js')
+  expect(recoveryServers(SUGGESTED_SERVERS)).toEqual(SUGGESTED_SERVERS)
+  expect(() => recoveryServers(['https://blossom.nostr.build', 'https://blossom.band', 'https://blossom.primal.net'])).toThrow('same operator')
+})
+it('follows CDN redirects on read because the bytes are hash-verified', async () => {
+  const { recoverRemote, encryptBackup, digest, newRecoverySecret, SUGGESTED_SERVERS } = await import('./recovery.js')
+  const secret = newRecoverySecret(), bytes = await encryptBackup({ ok: true }, secret), hash = await digest(bytes)
+  const seen = []
+  const fetcher = async (url, options) => { seen.push(options.redirect); return new Response(url.startsWith(SUGGESTED_SERVERS[0]) ? bytes : new Uint8Array([1, 2, 3])) }
+  expect(await recoverRemote({ servers: SUGGESTED_SERVERS, hash, secret, fetcher })).toEqual({ ok: true })
+  expect(seen[0]).toBe('follow')
+  const tampered = async () => new Response(new Uint8Array([9]))
+  await expect(recoverRemote({ servers: SUGGESTED_SERVERS, hash, secret, fetcher: tampered })).rejects.toThrow()
+})

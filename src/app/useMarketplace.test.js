@@ -4,7 +4,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import { OutputData, getEncodedToken } from '@cashu/cashu-ts'
 import { wrapPrivate, openPrivate } from '../marketplace/private.js'
 import { encryptBackup, decryptBackup, newRecoverySecret } from '../recovery.js'
-import { createEscrowKey } from '../marketplace/escrow.js'
+import { childPubkeys } from '../marketplace/arbitrator-keys.js'
 import { testMint } from '../marketplace/test-mint.fixture.js'
 import { connectMint } from '../marketplace/escrow.js'
 import { useMarketplace } from './useMarketplace.js'
@@ -92,8 +92,8 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); mounted.forEach(m => m.unmount()); mounted = []; vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
 async function market() {
-  const arbitrator = deviceSigner(), arbitratorEscrow = createEscrowKey()
-  vi.stubEnv('VITE_ARBITRATOR_PANEL', JSON.stringify([{ name: 'Test panel', pubkey: arbitrator.pubkey, escrowKey: arbitratorEscrow.pubkey }]))
+  const arbitrator = deviceSigner()
+  vi.stubEnv('VITE_ARBITRATOR_PANEL', JSON.stringify([{ name: 'Test panel', pubkey: arbitrator.pubkey, escrowKeys: await childPubkeys(newRecoverySecret(), 4) }]))
   vi.stubEnv('VITE_PROTECTED_TRADES_ENABLED', 'true')
   vi.stubEnv('VITE_PILOT_MAX_INR_PER_TRADE', '1000')
   vi.stubEnv('VITE_PILOT_MAX_INR_PER_DAY', '2000')

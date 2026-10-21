@@ -25,6 +25,17 @@ export async function decryptBackup(bytes, secret) {
   return JSON.parse(decoder.decode(clear))
 }
 
+// Hostnames are not operators: one operator can serve several hosts (in
+// October 2026 blossom.nostr.build and blossom.band returned identical
+// operator-specific headers). Hosts known to share an operator are rejected
+// together. Unknown hosts still need the user's own judgement.
+export const KNOWN_OPERATORS = { 'blossom.nostr.build': 'nostr.build', 'blossom.band': 'nostr.build', 'nostr.build': 'nostr.build', 'blossom.primal.net': 'Primal', 'cdn.satellite.earth': 'Satellite', 'blossom.yakihonne.com': 'YakiHonne' }
+// Suggestions only, from three different operators whose browser CORS allowed
+// uploads when checked. Saving uploads and reads back the encrypted backup,
+// which is the real test; replace any host that fails or that you do not trust.
+export const SUGGESTED_SERVERS = ['https://blossom.primal.net', 'https://blossom.nostr.build', 'https://cdn.satellite.earth']
+const operatorOf = host => KNOWN_OPERATORS[host] || host
+
 export function recoveryServers(values) {
   const urls = values.map(value => {
     const url = new URL(value)
@@ -32,11 +43,14 @@ export function recoveryServers(values) {
     return url.origin
   })
   if (urls.length !== 3 || new Set(urls.map(value => new URL(value).hostname)).size !== 3) throw new Error('Choose three different Blossom server hosts, run by independent operators.')
+  if (new Set(urls.map(value => operatorOf(new URL(value).hostname))).size !== 3) throw new Error('Two of these hosts are run by the same operator. Choose three independent operators.')
   return urls
 }
 
 async function readVerified(server, hash, fetcher) {
-  const response = await fetcher(`${server}/${hash}`, { signal: AbortSignal.timeout(15000), credentials: 'omit', cache: 'no-store', redirect: 'error' })
+  // Blossom may redirect reads to a CDN (BUD-01). Following is safe because
+  // the bytes are checked against the expected SHA-256 below.
+  const response = await fetcher(`${server}/${hash}`, { signal: AbortSignal.timeout(15000), credentials: 'omit', cache: 'no-store', redirect: 'follow' })
   if (!response.ok) throw new Error('Backup is not retrievable.')
   const reader = response.body?.getReader()
   if (!reader) throw new Error('Backup response has no body.')

@@ -50,6 +50,9 @@ Every trade message after the proposal names the message it answers (`payload.re
 - Lost swap responses: every consuming swap goes through one recovery adapter. Unspent inputs allow the identical saved swap to be retried; pending or partly spent inputs keep the operation uncertain; fully spent inputs trigger NUT-09 restoration of the exact saved outputs, rejecting missing, extra, duplicated, substituted or DLEQ-invalid signatures, including under rotated keysets.
 - Encrypted IndexedDB records with revision compare-and-set, Web Locks across tabs, and durable outboxes that resend the same wrap.
 - AES-256-GCM recovery snapshots replicated to three Blossom hosts with full readback. Two verified copies of the exact operation are required before any mint spend or payout signature.
+- Trade operations back up only that trade (its record, keys, proofs and pending messages), so the copy made inside a funding window stays small; full snapshots run in the background. Recovery restores the newest full snapshot and overlays every trade whose own backup is newer, and refuses to continue if the newest copy of any scope is unreadable.
+- Three suggested Blossom hosts from different operators are prefilled and can be replaced. Hosts known to share an operator are rejected together (blossom.nostr.build and blossom.band returned identical operator headers). Reads follow CDN redirects because every byte is hash-checked.
+- Per-trade arbitrator keys: `npm run arbitrator:keys -- generate` creates an offline seed and the public `escrowKeys` list for the panel. Each trade uses one key chosen from its nonce. When a case arrives, the arbitrator derives only that trade's secret offline (`derive`) and pastes it. A leaked trade key reveals nothing about the seed or other trades.
 
 ## Configuration
 
@@ -65,9 +68,10 @@ A mint qualifies by caching `POST /v1/swap` indefinitely (NUT-19 `ttl: null`) or
 2. **Refund timelock risk:** a payer who paid but does not dispute before the refund date can lose the escrow to a dishonest requester's solo refund. The dispute prompt and arbitration response time are the mitigation; arbitration availability must be staffed accordingly.
 3. **Reputation:** existing history is participant-reported and can be collusive. Mutual completion attestations and reviewed outcomes are not implemented.
 4. **Client coordination:** local locks and observed reservations cannot enforce a global one-trade limit across devices or modified clients.
-5. **Device key security:** private escrow requires a device identity whose secret is in localStorage. External signers can browse only. Complete a security review before live funds.
-6. **Recovery:** different hostnames do not prove different operators. Each backup re-uploads the whole private store. Losing both the kit and device can make recovery impossible.
-7. **India/device launch:** real Android/iOS UPI handoff, pending payments, reversals and arbitration workflows need device testing, and operating, tax and legal requirements need qualified review.
+5. **Arbitrator custody:** the seed must stay on an offline, backed-up device. Losing it loses arbitration for every trade using its keys (the requester timelock still refunds).
+6. **Device key security:** private escrow requires a device identity whose secret is in localStorage. External signers can browse only. Complete a security review before live funds.
+7. **Recovery:** the known-operator list is small; unknown hosts still need judgement. Suggested hosts' upload and retention policies are only proven when the app uploads and reads back the user's backup. Losing both the kit and device can make recovery impossible.
+8. **India/device launch:** real Android/iOS UPI handoff, pending payments, reversals and arbitration workflows need device testing, and operating, tax and legal requirements need qualified review.
 
 ## Validation
 

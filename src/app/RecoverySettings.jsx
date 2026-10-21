@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { getPublicKey } from 'nostr-tools/pure'
 import { decode } from 'nostr-tools/nip19'
 import { createHistory, verifiedPublicEvent } from '../history.js'
-import { makeRecoveryKit, openRecoveryKit, recoveryServers, replicateBackup, newRecoverySecret } from '../recovery.js'
+import { makeRecoveryKit, openRecoveryKit, recoveryServers, replicateBackup, newRecoverySecret, SUGGESTED_SERVERS } from '../recovery.js'
 import { createVault } from '../marketplace/vault.js'
 import { findRemoteSnapshots } from '../marketplace/backup.js'
 import { exportLocalKey, importLocalKey, localSigner, saveSignerChoice } from './identity.js'
@@ -14,7 +14,7 @@ function download(kit) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 export default function RecoverySettings({ signer, onSigner, market }) {
-  const [servers, setServers] = useState(['', '', ''])
+  const [servers, setServers] = useState(SUGGESTED_SERVERS)
   const [kit, setKit] = useState(null)
   const [restore, setRestore] = useState(null)
   const [status, setStatus] = useState('')
@@ -96,7 +96,7 @@ export default function RecoverySettings({ signer, onSigner, market }) {
     <p>This snapshot includes public history, pending signed events and the device identity, plus private agreements, escrow keys, proofs and prepared operations saved by the marketplace. External signer keys must be backed up in that signer. Legacy token DMs are not included.</p>
     <p>The downloaded kit contains the recovery secret: anyone holding it can restore your device identity. Only encrypted backup bytes are sent to servers. Keep each updated kit securely.</p>
     {servers.map((server, i) => <label className="field" key={i}>Blossom server {i + 1}<input type="url" value={server} placeholder="https://your-blossom-server.example" onChange={e => setServers(prev => prev.map((value, n) => n === i ? e.target.value : value))} /></label>)}
-    <p className="dim">Use three independently operated hosts. Replication requires compatible upload authorization and browser CORS. Storage retention depends on each host.</p>
+    <p className="dim">Three suggested hosts from different operators are filled in. Saving uploads your encrypted backup and reads it back from each, which is the real test; replace any that fail or that you do not trust. Retention depends on each host.</p>
     <button className="btn primary" disabled={busy} onClick={() => run(snapshot)}>Download a new recovery kit</button>
     {market?.vault&&<button className="btn ghost" disabled={busy||servers.some(s=>!s)} onClick={()=>run(configureAutomatic)}>Set up automatic private-trade backups</button>}
     {automaticReady&&<button className="btn primary" disabled={busy} onClick={()=>run(confirmOffline)}>I saved the kit outside this browser</button>}
