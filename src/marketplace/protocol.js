@@ -138,6 +138,8 @@ export function tradeView(agreement, agreementId, rawEvents, evidence = {}, now 
   const paymentStarted = reports.length > 0
   const merchantConfirmed = active.some(e => e.action === 'merchant-confirmed' && e.pubkey === requester)
   const paidReport = reports.filter(e => ['successful', 'pending'].includes(e.payload.status)).at(-1)
+  // A release to the payer that the payer already signed, for one-click confirmation.
+  const payerRelease = active.filter(e => e.action === 'resolution-approve' && e.pubkey === payer && e.payload.operation?.allocation?.requesterSats === 0).at(-1)?.payload.operation
   let status = offered ? 'awaiting-funding' : now > agreement.quoteExpiresAt ? 'quote-expired' : 'awaiting-payer'
   if (offered && !notice && !funded && now > fundBy) status = 'funding-expired'
   if (notice && !funded) status = 'escrow-sent'
@@ -155,6 +157,7 @@ export function tradeView(agreement, agreementId, rawEvents, evidence = {}, now 
     canPay: offered && funded && !lateFunding && !completed && !paymentStarted && !cancellation && !dispute,
     occupiesSlot: funded && !lateFunding && !completed,
     refundAfter: agreement.refundAfter,
+    payerRelease: funded && !completed && !lateFunding ? payerRelease : undefined,
     refundable: funded && !completed && now >= agreement.refundAfter,
     disputeDue: funded && !completed && !dispute && !merchantConfirmed && !!paidReport && now >= paidReport.created_at + CONFIRM_WINDOW,
     mayEscalate: funded && !completed && now >= (evidence.funding.verifiedAt || now) + 600,

@@ -50,6 +50,7 @@ export function useMarketplace(client, signer) {
         if(!live)return
         const signed=signer.openPrivate(wrap),message=signed&&parsePrivate(signed)
         if(!message)return
+        let follow=null
         if(message.action==='case') {
           const a=validateAgreement(message.payload.agreement)
           if(a.arbitrator!==signer.pubkey||![a.requester,a.payer].includes(message.pubkey)||await contentHash(a)!==message.agreementId)return
@@ -84,9 +85,21 @@ export function useMarketplace(client, signer) {
           const row=await vault.read(`trade:${message.agreementId}`)
           if(!row || ![row.value.agreement.requester,row.value.agreement.payer,row.value.agreement.arbitrator].includes(message.pubkey) || row.value.events.some(e=>e.id===signed.id))return
           await vault.write(row.id,{...row.value,events:[...row.value.events,signed],received:{...row.value.received,[signed.id]:Math.floor(Date.now()/1000)}},row.revision)
+          follow=row.id
         }
         if(live)await reload()
+        if(live&&follow)autoFollow(follow,message.action)
       }).catch(e=>setError(e.message))
+    }
+    // Mint checks that need no decision run as soon as their message arrives:
+    // the payer verifies incoming escrow, and either side verifies a payout.
+    const autoFollow=(id,action)=>{
+      const check=async({id})=>{
+        const row=await vault.read(id),a=row.value.agreement
+        if(action==='funding'&&signer.pubkey===a.payer&&!row.value.evidence.funding?.verified)return verifyIncomingFunding(row)
+        if(action==='payout'&&[a.requester,a.payer].includes(signer.pubkey)&&!row.value.evidence.redemption?.verified)return verifyIncomingPayout(row)
+      }
+      if(['funding','payout'].includes(action))exclusive(check)({id}).catch(e=>{if(live)setError(`Automatic mint check needs attention: ${e.message}`)})
     }
     client.queryIdentity({kinds:[10050],authors:[signer.pubkey]}).then(events=>{
       if(!live)return
@@ -304,6 +317,29 @@ export function useMarketplace(client, signer) {
     await backupOperation(vault,signer,signed,fetch,client)
     await sendTrade(row,'resolution-approve',{operation:signed});await reload()
   }
+  // Payer, one click after paying: report it and attach a release to
+  // themselves that already carries the payer's signature.
+  async function reportPaid(row) {
+    await action(row,'payment-report',{status:'successful'})
+    row=await vault.read(row.id)
+    const a=row.value.agreement,wallet=await mintFor(a),fee=Number(wallet.getFeesForProofs(row.value.proofs))
+    const allocation={requesterSats:0,payerSats:a.escrowSats-fee,mintFeeSats:fee,reason:'Payer reported the UPI payment as successful.'}
+    validateResolution(a,viewOf(row),allocation,signer.pubkey)
+    row=await save(row,{resolutionOperation:await prepareResolution(wallet,a,row.value.proofs,allocation)})
+    await approveResolution(row,row.value.resolutionOperation)
+  }
+  // Requester, one click: confirm the merchant was paid, add the second
+  // signature to the payer's signed release, and settle it at the mint.
+  async function confirmAndRelease(row) {
+    row=await vault.read(row.id)
+    const a=row.value.agreement,view=viewOf(row)
+    if(signer.pubkey!==a.requester)throw new Error('Only the requester confirms the merchant was paid.')
+    if(!view.payerRelease)throw new Error('The payer has not attached a signed release yet.')
+    if(!view.merchantConfirmed){await action(row,'merchant-confirmed');row=await vault.read(row.id)}
+    await approveResolution(row,view.payerRelease)
+    row=await vault.read(row.id)
+    await settle(row,row.value.resolutionOperation)
+  }
   async function settle(row,operation) {
     if(!config.protectedEnabled)throw new Error('Mint settlement is disabled until deployment verification.')
     row=await vault.read(row.id)
@@ -383,5 +419,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow,reportPaid:exclusive(reportPaid),confirmAndRelease:exclusive(confirmAndRelease)}
 }

@@ -10,8 +10,10 @@ There is no platform fee and no fee recipient. Optional zaps are offered through
 2. The requester sends a private quote request. For a payer advertisement it includes the merchant's UPI destination; for a QR job the requester's own proposal carries it.
 3. **The payer commits by signing the exact terms.** When the payer built the proposal, the proposal is the payer's signed commitment. When the requester built it, the payer signs an `accept` that references that proposal. Either is valid for five minutes.
 4. **The requester commits by funding.** "Accept & fund with Lightning" asks the agreed mint for an invoice; paying it from any Lightning wallet makes the mint sign outputs that are already escrow-locked. Ecash already held at that mint can be pasted instead (advanced). Either way a `funding` notice references the payer's commitment. There is no separate requester accept.
-5. The payer verifies the escrow at the mint, then pays the merchant via UPI and reports it. The requester confirms merchant credit.
-6. Both sign the exact payout and either submits it to the mint. The recipient verifies and collects.
+5. The payer's app verifies the escrow at the mint automatically. The payer pays the merchant via UPI and taps "I paid", which reports it and attaches a release to the payer that already carries the payer's signature.
+6. The requester taps "Merchant received it", which adds the second signature and settles at the mint. The payer's app verifies the payout automatically. Collection into an external wallet is only needed when exporting.
+
+In the normal case that is three taps for the requester (request, accept & fund, merchant received it) and three for the payer (offer terms, start UPI, I paid). Disputes, splits and cancellations keep their explicit controls.
 
 Every trade message after the proposal names the message it answers (`payload.re`): accept → proposal, funding → payer commitment, payment report and decline → funding. Status follows those signed references, not sender-chosen timestamps.
 

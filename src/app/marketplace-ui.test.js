@@ -89,3 +89,17 @@ it('shows the mint-issued invoice only while the funding window is open, and the
   expect(funded).toContain('Where are my sats?')
   expect(funded).toContain('wot-pay never holds your money')
 })
+it('gives each side one primary action at the payment step', async () => {
+  const { testTrade } = await import('../marketplace/fixtures.js')
+  const { tradeView } = await import('../marketplace/protocol.js')
+  const { default: ProtectedTrades } = await import('./ProtectedTrades.jsx')
+  const t = await testTrade(), proposal = t.sign('payer','proposal',{}), notice = t.sign('requester','funding',{re:proposal.id},t.now+2)
+  const started = t.sign('payer','payment-report',{status:'started',re:notice.id},t.now+3)
+  const release = t.sign('payer','resolution-approve',{operation:{allocation:{requesterSats:0,payerSats:1000,mintFeeSats:0}}},t.now+4)
+  const evidence = { funding: { agreementId: t.id, verified: true } }
+  const page = (pubkey, events) => render(ProtectedTrades, { signer: { pubkey }, market: { records: [], trades: [{ id: `trade:${t.id}`, value: { agreement: t.agreement, events, evidence }, view: tradeView(t.agreement,t.id,events,evidence) }], config: { protectedEnabled: true } } })
+  expect(page(t.agreement.payer,[proposal,notice,started])).toContain('I paid · request release')
+  expect(page(t.agreement.payer,[proposal,notice,started,release])).not.toContain('I paid · request release')
+  expect(page(t.agreement.requester,[proposal,notice,started])).not.toContain('Merchant received it')
+  expect(page(t.agreement.requester,[proposal,notice,started,release])).toContain('Merchant received it · release payment')
+})

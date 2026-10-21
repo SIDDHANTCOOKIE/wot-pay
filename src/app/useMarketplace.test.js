@@ -84,7 +84,9 @@ async function until(check, what) {
 let mounted = []
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  vi.stubGlobal('navigator', { locks: { request: (name, fn) => fn() } })
+  // Web Locks stand-in: serializes callbacks per lock name, like the browser.
+  const queues = new Map()
+  vi.stubGlobal('navigator', { locks: { request: (name, fn) => { const run = (queues.get(name) || Promise.resolve()).then(() => fn()); queues.set(name, run.catch(() => {})); return run } } })
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} })
 })
 afterEach(() => { vi.useRealTimers(); mounted.forEach(m => m.unmount()); mounted = []; vi.unstubAllGlobals(); vi.unstubAllEnvs() })
@@ -212,4 +214,27 @@ it('enforces the published pilot limit before any quote is sent', async () => {
   await m.p.api().publishListing(listing)
   const seen = await until(() => m.r.api().listings.find(l => l.listingId === listing.listingId), 'listing')
   await expect(m.r.api().requestQuote(seen, 100001, 2000, { vpa: 'merchant@upi' })).rejects.toThrow('per trade')
+})
+
+it('completes a trade in a handful of clicks: escrow and payout are verified automatically', async () => {
+  const m = await market() // requester: request quote · payer: offer terms
+  const op = await m.r.api().prepareLightning(await m.row(m.r)) // requester: accept & fund
+  m.wallet().payInvoice(op.preview.quote.quote) // (paid in the requester's Lightning wallet)
+  await m.r.api().completeLightning(await m.row(m.r)) // (the page polls this)
+  const verified = await until(async () => { const row = await m.row(m.p); return row.view.canPay && row }, 'automatic escrow verification')
+  await m.p.api().action(verified, 'payment-report', { status: 'started' }) // payer: start UPI payment
+  await m.p.api().reportPaid(await m.row(m.p)) // payer: I paid
+  const release = await until(async () => (await m.row(m.r)).view.payerRelease, 'payer-signed release')
+  expect(release.allocation).toMatchObject({ requesterSats: 0, payerSats: 1000 })
+  await m.r.api().confirmAndRelease(await m.row(m.r)) // requester: merchant received it
+  expect((await m.row(m.r)).view.completed).toBe(true)
+  await until(async () => (await m.row(m.p)).view.completed, 'automatic payout verification')
+})
+
+it('never releases on the requester\'s click without the payer\'s own signed release', async () => {
+  const m = await market()
+  await m.r.api().fund(await m.row(m.r), await m.token())
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await expect(m.r.api().confirmAndRelease(await m.row(m.r))).rejects.toThrow('signed release')
+  expect((await m.row(m.r)).view.completed).toBe(false)
 })
