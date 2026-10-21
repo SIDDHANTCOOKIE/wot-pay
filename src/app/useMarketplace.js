@@ -50,7 +50,7 @@ export function useMarketplace(client, signer) {
     const receive = wrap => {
       ingestQueue.current=ingestQueue.current.then(async()=>{
         if(!live)return
-        const signed=signer.openPrivate(wrap),message=signed&&parsePrivate(signed)
+        const signed=await signer.openPrivate(wrap),message=signed&&parsePrivate(signed)
         if(!message)return
         let follow=null
         if(message.action==='case') {

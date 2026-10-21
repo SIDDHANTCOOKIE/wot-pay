@@ -91,7 +91,7 @@ beforeEach(() => {
 })
 afterEach(() => { vi.useRealTimers(); mounted.forEach(m => m.unmount()); mounted = []; vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
-async function market() {
+async function market({ requesterSigner = deviceSigner() } = {}) {
   const arbitrator = deviceSigner()
   vi.stubEnv('VITE_ARBITRATOR_PANEL', JSON.stringify([{ name: 'Test panel', pubkey: arbitrator.pubkey, escrowKeys: await childPubkeys(newRecoverySecret(), 4) }]))
   vi.stubEnv('VITE_PROTECTED_TRADES_ENABLED', 'true')
@@ -99,7 +99,7 @@ async function market() {
   vi.stubEnv('VITE_PILOT_MAX_INR_PER_DAY', '2000')
   let wallet
   connectMint.mockImplementation(async agreement => (wallet ||= testMint(agreement)))
-  const net = network(), requester = deviceSigner(), payer = deviceSigner()
+  const net = network(), requester = requesterSigner, payer = deviceSigner()
   const r = mount(useMarketplace, net(requester), requester), p = mount(useMarketplace, net(payer), payer)
   mounted.push(r, p)
   await r.api().enableInbox(); await p.api().enableInbox()
@@ -252,4 +252,20 @@ it('lets both parties attest a completed trade, which counts as one mutual compl
   const a = await m.r.api().attestCompletion(await m.row(m.r)), b = await m.p.api().attestCompletion(await m.row(m.p))
   expect(JSON.stringify([a, b])).not.toContain('merchant@upi')
   expect(mutualCompletions([a, b])).toHaveLength(1)
+})
+
+it('trades with an extension-style signer whose secret key never enters the app', async () => {
+  const { externalSigner } = await import('../marketplace/external-signer.fixture.js')
+  const remote = externalSigner().signer
+  expect(remote.sk).toBeUndefined()
+  const m = await market({ requesterSigner: remote })
+  const op = await m.r.api().prepareLightning(await m.row(m.r))
+  m.wallet().payInvoice(op.preview.quote.quote)
+  await m.r.api().completeLightning(await m.row(m.r))
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await m.p.api().action(await m.row(m.p), 'payment-report', { status: 'started' })
+  await m.p.api().reportPaid(await m.row(m.p))
+  await until(async () => (await m.row(m.r)).view.payerRelease, 'payer-signed release')
+  await m.r.api().confirmAndRelease(await m.row(m.r))
+  expect((await m.row(m.r)).view.completed).toBe(true)
 })

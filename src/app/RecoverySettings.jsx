@@ -26,7 +26,7 @@ export default function RecoverySettings({ signer, onSigner, market }) {
   }
   async function snapshot() {
     const history = createHistory()
-    const data = { version: 1, owner: signer.pubkey, createdAt: Date.now(), deviceKey: signer.kind === 'local' ? exportLocalKey() : null, events: await history.load(), pending: await history.pending(signer.pubkey), privateRecords:market?.vault?await market.vault.snapshot():[] }
+    const data = { version: 1, owner: signer.pubkey, createdAt: Date.now(), deviceKey: signer.kind === 'local' ? exportLocalKey() : null, vaultKey: signer.kind !== 'local' && signer.vaultKey ? await signer.vaultKey() : null, events: await history.load(), pending: await history.pending(signer.pubkey), privateRecords:market?.vault?await market.vault.snapshot():[] }
     const configured = servers.some(Boolean) ? recoveryServers(servers) : []
     const next = await makeRecoveryKit(data, configured)
     setKit(next); download(next)
@@ -47,6 +47,7 @@ export default function RecoverySettings({ signer, onSigner, market }) {
       if (decoded.type !== 'nsec' || getPublicKey(decoded.data) !== data.owner) throw new Error('Backup identity does not match its key.')
     } else if (data.owner !== signer.pubkey) throw new Error('Connect the external signer for this backup first.')
     if ([...data.events, ...data.pending].some(e => !verifiedPublicEvent(e)) || data.pending.some(e => e.pubkey !== data.owner)) throw new Error('Backup contains invalid signed history.')
+    if(data.vaultKey!=null&&!/^[0-9a-f]{64}$/.test(data.vaultKey))throw new Error('Invalid private trade key in backup.')
     if(data.privateRecords&&(!Array.isArray(data.privateRecords)||data.privateRecords.length>10000||data.privateRecords.some(row=>row.owner!==data.owner||typeof row.id!=='string'||!row.value)))throw new Error('Invalid private backup records.')
     setRestore(data)
   }
@@ -56,6 +57,8 @@ export default function RecoverySettings({ signer, onSigner, market }) {
     for (const event of restore.pending) await history.save(event, true)
     let restoredSigner=signer
     if (restore.deviceKey) { importLocalKey(restore.deviceKey); saveSignerChoice('local'); restoredSigner=localSigner() }
+    // External signers: reopen records this browser sealed before its key was lost.
+    if(restore.vaultKey&&restoredSigner.importVaultKey)await restoredSigner.importVaultKey(restore.vaultKey)
     if(restore.privateRecords?.length) {
       const vault=createVault(restoredSigner)
       for(const row of restore.privateRecords) {

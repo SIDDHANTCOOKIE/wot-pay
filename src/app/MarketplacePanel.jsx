@@ -41,7 +41,7 @@ export default function MarketplacePanel({ market, signer, board, mode = 'earn',
     <h2>{mode==='earn'?'Private QR requests':'Find a payer'}</h2>
     <p className="dim">Payment destinations are shared privately with the selected person. Quotes require both parties’ agreement before funding.</p>
     {market.config.limits?.tradePaise&&<p className="fine">Pilot limits: up to {rupees(market.config.limits.tradePaise/100)} per trade and {rupees(market.config.limits.dayPaise/100)} per day.</p>}
-    {signer&&!market.supported&&<p className="hint">Private marketplace messages currently require a device identity. Your external signer can still browse.</p>}
+    {signer&&!market.supported&&<p className="hint">Your signer does not support NIP-44 encryption, so it can browse but not trade privately. Use an up-to-date extension or remote signer, or a device key.</p>}
     {signer&&market.supported&&!market.inbox&&<button className="btn primary" disabled={busy} onClick={()=>run(market.enableInbox)}>Enable private trade inbox</button>}
     <button className="btn ghost" disabled={busy||!!signer&&!market.supported} onClick={()=>{if(requireAccount())setEditing(!editing)}}>{mode==='earn'?'Create payer advertisement':'Publish a private QR request'}</button>
     {editing&&<div className="card">

@@ -44,6 +44,11 @@ Every trade message after the proposal names the message it answers (`payload.re
 - After a trade that paid the payer, each party may publish a kind-3408 completion attestation (opt-in). It names the counterparty, an amount range and the week, plus a commitment derived from the private agreement id; never the merchant, UPI ID, exact amount or agreement.
 - A completion counts only when both parties attested the same commitment with matching terms. Each party is credited with the trust weight of the other, only when that other party is inside the viewer's graph, and one pair counts at most three times. Refunds and declined trades cannot be attested.
 
+## External signers
+
+- Extensions and remote signers trade through the same NIP-17 messages: the app builds the rumor, the signer NIP-44-encrypts and signs the seal, and a one-time key wraps it. Opening checks that the seal's signer is the message author and that the rumor hashes correctly.
+- Private records are sealed with a random per-identity vault key stored only encrypted to the user's own key, unlocked once per session. A key is never created over one that fails to decrypt, and the recovery kit carries it so a browser can reopen records sealed before its key was lost.
+
 ## Implemented
 
 - Browse-first Pay a QR, Earn sats and My trades. Until protected trading is configured, scanning a QR posts a public no-escrow offer and the marketplace stays hidden.
@@ -74,7 +79,7 @@ A mint qualifies by caching `POST /v1/swap` indefinitely (NUT-19 `ttl: null`) or
 3. **Reputation:** completion attestations prove two keys agreed a trade completed, not that a bank payment happened; colluding parties inside your graph can still vouch for each other within the pair cap. Arbitrator-reviewed outcomes, appeals and penalties are not implemented.
 4. **Client coordination:** local locks and observed reservations cannot enforce a global one-trade limit across devices or modified clients.
 5. **Arbitrator custody:** the seed must stay on an offline, backed-up device. Losing it loses arbitration for every trade using its keys (the requester timelock still refunds).
-6. **Device key security:** private escrow requires a device identity whose secret is in localStorage. External signers can browse only. Complete a security review before live funds.
+6. **Signer security:** device identities keep their secret in localStorage. Extension (NIP-07) and remote (NIP-46) signers with NIP-44 can now trade without the secret entering the app; signers without NIP-44 can browse only. Each money step may prompt the signer several times (messages, backups, Blossom upload authorizations). Complete a security review before live funds.
 7. **Recovery:** the known-operator list is small; unknown hosts still need judgement. Suggested hosts' upload and retention policies are only proven when the app uploads and reads back the user's backup. Losing both the kit and device can make recovery impossible.
 8. **India/device launch:** real Android/iOS UPI handoff, pending payments, reversals and arbitration workflows need device testing, and operating, tax and legal requirements need qualified review.
 
