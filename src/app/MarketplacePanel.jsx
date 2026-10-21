@@ -40,10 +40,11 @@ export default function MarketplacePanel({ market, signer, board, mode = 'earn',
   return <div className="marketplace-panel">
     <h2>{mode==='earn'?'Private QR requests':'Find a payer'}</h2>
     <p className="dim">Payment destinations are shared privately with the selected person. Quotes require both parties’ agreement before funding.</p>
+    {market.config.paused&&<p className="hint warn" role="status">New trades are paused. Existing trades, refunds and settlement continue as normal.</p>}
     {market.config.limits?.tradePaise&&<p className="fine">Pilot limits: up to {rupees(market.config.limits.tradePaise/100)} per trade and {rupees(market.config.limits.dayPaise/100)} per day.</p>}
     {signer&&!market.supported&&<p className="hint">Your signer does not support NIP-44 encryption, so it can browse but not trade privately. Use an up-to-date extension or remote signer, or a device key.</p>}
     {signer&&market.supported&&!market.inbox&&<button className="btn primary" disabled={busy} onClick={()=>run(market.enableInbox)}>Enable private trade inbox</button>}
-    <button className="btn ghost" disabled={busy||!!signer&&!market.supported} onClick={()=>{if(requireAccount())setEditing(!editing)}}>{mode==='earn'?'Create payer advertisement':'Publish a private QR request'}</button>
+    <button className="btn ghost" disabled={busy||market.config.paused||!!signer&&!market.supported} onClick={()=>{if(requireAccount())setEditing(!editing)}}>{mode==='earn'?'Create payer advertisement':'Publish a private QR request'}</button>
     {editing&&<div className="card">
       <label className="field">Cashu mint<input value={mint} onChange={e=>setMint(e.target.value)} placeholder="https://your-mint.example" /></label>
       {mode==='earn'?<>
@@ -67,7 +68,7 @@ export default function MarketplacePanel({ market, signer, board, mode = 'earn',
       {listing.type==='payer-listing'&&<p>{listing.rateType==='fixed'?`${listing.rate} sats per ₹`:`Market rate ${Number(listing.rate)>=0?'+':''}${listing.rate}%`}</p>}
       {listing.type==='payer-listing'&&<p className="dim">{estimate(listing)?`${sats(estimate(listing).totalSats)} platform fee: 0; mint costs quoted before acceptance.`:'Enter an amount; market prices need a fresh reference.'}</p>}
       <p className="dim">{new URL(listing.mint).hostname} · {board.ranker.explain(listing.pubkey).hops===1?'You follow them':'Review their trust history'}{board.ranker.explain(listing.pubkey).completions>0?' · completed protected trades with people you trust':''}</p>
-      <button className="btn primary" disabled={busy||!!signer&&(!market.supported||!market.inbox)} onClick={()=>{if(requireAccount())setSelected(listing.id)}}>Request a quote</button>
+      <button className="btn primary" disabled={busy||market.config.paused||!!signer&&(!market.supported||!market.inbox)} onClick={()=>{if(requireAccount())setSelected(listing.id)}}>Request a quote</button>
       {selected===listing.id&&<div>
         {listing.type==='payer-listing'&&<label className="field">Payment amount (₹)<input value={amount} onChange={e=>setAmount(e.target.value)}/></label>}
         <label className="field">Your sats quote (optional)<input inputMode="numeric" value={bid} onChange={e=>setBid(e.target.value)} placeholder={listing.type==='qr-request'?String(listing.sats):'Use the advertised rate'}/></label>

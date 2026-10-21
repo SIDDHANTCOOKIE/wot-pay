@@ -1,5 +1,5 @@
 import { expect,it } from 'vitest'
-import { marketplaceConfig,assertDeploymentAgreement,assertWithinLimits } from './config.js'
+import { marketplaceConfig,assertDeploymentAgreement,assertWithinLimits,assertNewTrades } from './config.js'
 import { testTrade } from './fixtures.js'
 
 it('rejects peer substitution of the arbitrator key',async()=>{
@@ -22,4 +22,10 @@ it('keeps protected trading off until both pilot limits are published, and enfor
   expect(()=>assertWithinLimits(config,50001)).toThrow('per trade')
   expect(()=>assertWithinLimits(config,30000,80000)).toThrow('per day')
   expect(()=>assertWithinLimits(marketplaceConfig(base),100)).toThrow('not configured')
+})
+it('reads the incident pause separately from enabling protected trades', () => {
+  expect(marketplaceConfig({ VITE_NEW_TRADES_PAUSED: 'true' }).paused).toBe(true)
+  expect(marketplaceConfig({}).paused).toBe(false)
+  expect(() => assertNewTrades({ paused: true })).toThrow('paused')
+  expect(() => assertNewTrades({ paused: false })).not.toThrow()
 })

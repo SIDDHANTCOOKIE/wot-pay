@@ -6,7 +6,7 @@ import { createEscrowKey } from '../marketplace/escrow.js'
 import { pickArbitratorKey } from '../marketplace/arbitrator-keys.js'
 import { completionTemplate } from '../marketplace/attestations.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
-import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits } from '../marketplace/config.js'
+import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits, assertNewTrades } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
 import { connectMint, prepareFunding, completeFunding, prepareLightningFunding, completeLightningFunding, requireBackup, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
 import { backupOperation, syncPrivateBackup } from '../marketplace/backup.js'
@@ -117,6 +117,7 @@ export function useMarketplace(client, signer) {
   }
   async function publishListing(listing,privateDestination) {
     if(!vault)throw new Error('Use a device identity for the private marketplace.')
+    if(listing.available)assertNewTrades(config)
     const id=`listing:${listing.listingId}`,previous=await vault.read(id)
     const signed=await signer.sign(listingTemplate(listing,Math.max(Math.floor(Date.now()/1000),(previous?.value.signed.created_at||0)+1)))
     await vault.write(id,{kind:'listing',signed,destination:privateDestination || previous?.value.destination || null,status:'pending'},previous?.revision||0)
@@ -129,6 +130,7 @@ export function useMarketplace(client, signer) {
     if(!vault||!inbox)throw new Error('Enable your private inbox before requesting a quote.')
     const raw=publicEvents.get(listing.id)
     if(!raw||!currentListings([...publicEvents.values()],clock).some(l=>l.id===listing.id)||listing.pubkey===signer.pubkey)throw new Error('Choose an available offer from another person.')
+    assertNewTrades(config)
     assertWithinLimits(config,paise,await recentPaise())
     const requestId=newRecoverySecret(),escrowKey=createEscrowKey()
     const payload={listing:raw,paise,payerSats,escrowKey:escrowKey.pubkey}
@@ -159,6 +161,7 @@ export function useMarketplace(client, signer) {
     const escrowKey=createEscrowKey(),ownRole=requester===signer.pubkey?'requester':'payer'
     const panel=config.panel.find(p=>![requester,payer].includes(p.pubkey))
     if(!panel)throw new Error('No independent arbitrator is configured.')
+    assertNewTrades(config)
     assertWithinLimits(config,request.payload.paise,await recentPaise())
     // A payer's proposal is also the payer's acceptance of these exact terms.
     if(ownRole==='payer')await commitAsPayer(null)
@@ -177,6 +180,7 @@ export function useMarketplace(client, signer) {
     if(action==='accept') {
       if(me!==a.payer||!view.needsPayerAccept||!inbox)throw new Error('Quote expired, already accepted, or private inbox is not ready.')
       assertDeploymentAgreement(config,a)
+      assertNewTrades(config)
       assertWithinLimits(config,a.paise,await recentPaise(row.id))
       await commitAsPayer(row.id)
       payload={...payload,re:view.proposal.id}
@@ -234,7 +238,8 @@ export function useMarketplace(client, signer) {
     if(!view.offered||!view.canFund&&!saved)throw new Error('Funding window closed or the payer has not committed.')
     const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const v=viewOf(r);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...v,occupiesSlot:v.occupiesSlot||!!(r.value.fundingOperation||r.value.lightningOperation)&&!v.completed}}})
     requireFreeSlot(a.payer,latestTrades,row.id.slice(6))
-    if(!saved)assertWithinLimits(config,a.paise,await recentPaise(row.id))
+    // A saved attempt finishes even while paused; it may already be paid.
+    if(!saved){assertNewTrades(config);assertWithinLimits(config,a.paise,await recentPaise(row.id))}
     return {row,a,view,wallet:await mintFor(a),backup:operation=>backupOperation(vault,signer,operation,fetch,client)}
   }
   async function announceFunding(row,view,result) {

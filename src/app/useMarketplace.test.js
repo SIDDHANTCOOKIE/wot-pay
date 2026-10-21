@@ -269,3 +269,28 @@ it('trades with an extension-style signer whose secret key never enters the app'
   await m.r.api().confirmAndRelease(await m.row(m.r))
   expect((await m.row(m.r)).view.completed).toBe(true)
 })
+
+it('pauses new trades during an incident while funded trades still settle and saved funding finishes', async () => {
+  const m = await market()
+  const op = await m.r.api().prepareLightning(await m.row(m.r))
+  // The operator pauses after this invoice was shown; it may already be paid.
+  m.r.api().config.paused = true; m.p.api().config.paused = true
+  const listing = { v: 3, type: 'payer-listing', listingId: newRecoverySecret(), mint: 'https://mint.example', minPaise: 100, maxPaise: 100000, rateType: 'fixed', rate: '2', available: true, expiresAt: Math.floor(Date.now() / 1000) + 3600 }
+  await expect(m.p.api().publishListing(listing)).rejects.toThrow('paused')
+  m.wallet().payInvoice(op.preview.quote.quote)
+  expect(await m.r.api().completeLightning(await m.row(m.r))).toBe(true)
+  await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
+  await m.p.api().action(await m.row(m.p), 'payment-report', { status: 'started' })
+  await m.p.api().reportPaid(await m.row(m.p))
+  await until(async () => (await m.row(m.r)).view.payerRelease, 'payer-signed release')
+  await m.r.api().confirmAndRelease(await m.row(m.r))
+  expect((await m.row(m.r)).view.completed).toBe(true)
+})
+
+it('refuses a first funding attempt while new trades are paused', async () => {
+  const m = await market()
+  m.r.api().config.paused = true
+  await expect(m.r.api().prepareLightning(await m.row(m.r))).rejects.toThrow('paused')
+  await expect(m.r.api().fund(await m.row(m.r), await m.token())).rejects.toThrow('paused')
+  expect((await m.row(m.r)).value.lightningOperation).toBeUndefined()
+})

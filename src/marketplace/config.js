@@ -16,7 +16,14 @@ export function marketplaceConfig(env = import.meta.env) {
   const limits = { tradePaise: rupees('VITE_PILOT_MAX_INR_PER_TRADE'), dayPaise: rupees('VITE_PILOT_MAX_INR_PER_DAY') }
   const limited = !!limits.tradePaise && !!limits.dayPaise && limits.tradePaise <= limits.dayPaise
   const ready=panel.length > 0
-  return { panel, restoreMints, limits, ready, protectedEnabled: ready && limited && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
+  // Incident pause: stops new listings, quotes, commitments and first funding,
+  // while settlement, refunds, collection and disputes on existing trades go on.
+  const paused = env.VITE_NEW_TRADES_PAUSED === 'true'
+  return { panel, restoreMints, limits, ready, paused, protectedEnabled: ready && limited && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
+}
+
+export function assertNewTrades(config) {
+  if (config.paused) throw new Error('New trades are paused. Existing trades, refunds and settlement continue.')
 }
 
 export function assertWithinLimits(config, paise, recentPaise = 0) {

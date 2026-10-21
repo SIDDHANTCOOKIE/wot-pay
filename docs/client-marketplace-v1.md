@@ -68,6 +68,8 @@ Every trade message after the proposal names the message it answers (`payload.re
 
 Copy `.env.example` to `.env`. `VITE_ARBITRATOR_PANEL` contains JSON objects with `name`, a 64-character Nostr public key (`pubkey`) and a 66-character compressed Cashu key (`escrowKey`). Operators must enable their private inboxes. Never put private keys in Vite configuration.
 
+For incidents, set `VITE_NEW_TRADES_PAUSED=true`: it stops new listings, quote requests, commitments and first-time funding, while finishing saved funding attempts, settlement, refunds (including the timelock), collection and disputes continue. Turning `VITE_PROTECTED_TRADES_ENABLED` off instead also blocks settlement, so reserve that for before launch.
+
 `VITE_PROTECTED_TRADES_ENABLED` defaults to false. Agreement creation requires a valid panel; consuming mint calls additionally require the flag. `VITE_RESTORE_VERIFIED_MINTS` lists mints whose lost-response restoration passed a live test.
 
 A mint qualifies by caching `POST /v1/swap` indefinitely (NUT-19 `ttl: null`) or, with finite or no caching, by advertising NUT-09 and being listed in `VITE_RESTORE_VERIFIED_MINTS`. Run `npm run check:mint -- https://your-mint.example` first; it is read-only.
