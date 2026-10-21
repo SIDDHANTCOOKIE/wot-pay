@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { parsePrivate } from '../marketplace/protocol.js'
 import { upiLink } from '../upi.js'
 import { rupees, sats, Copy } from './ui.jsx'
 
+const clock=seconds=>new Date(seconds*1000).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})
 const day=seconds=>new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})
 
 export default function ProtectedTrades({ market, signer }) {
@@ -25,6 +26,26 @@ function QuoteRequest({row,market,busy,run}) {
   const m=parsePrivate(row.value.request),payerSide=row.value.listing.type==='payer-listing',[funding,setFunding]=useState('0'),[release,setRelease]=useState('0'),[price,setPrice]=useState(String(m.payload.payerSats))
   return <div className="card"><h3>Quote request · {rupees(m.payload.paise/100)}</h3><label className="field">Payer compensation (sats)<input value={price} onChange={e=>setPrice(e.target.value)}/></label><details><summary>Mint fee allowances</summary><label className="field">Funding including fee transfer (sats)<input value={funding} onChange={e=>setFunding(e.target.value)}/></label><label className="field">Escrow release (sats)<input value={release} onChange={e=>setRelease(e.target.value)}/></label><p>Both parties see these allowances before committing.</p></details>{payerSide&&<p className="dim">Sending this offer commits you to these exact terms for five minutes. If the requester funds escrow in time, you pay the merchant.</p>}<button className="btn primary" disabled={busy} onClick={()=>run(()=>market.propose(row,Number(price),Number(funding),Number(release)))}>{payerSide?'Offer these exact terms':'Send proposal to payer'}</button></div>
 }
+// The invoice comes straight from the agreed mint, never from the counterparty.
+// While it is open the page checks for payment every few seconds.
+function LightningInvoice({row,view,market,busy,run}) {
+  const op=row.value.lightningOperation,[waiting,setWaiting]=useState('')
+  const open=Math.floor(Date.now()/1000)<=view.fundBy
+  useEffect(()=>{const id=setInterval(()=>market.completeLightning(row).catch(()=>{}),5000);return()=>clearInterval(id)},[row.id])
+  return <div className="card"><h4>Pay {sats(row.value.agreement.escrowSats)} by Lightning</h4>
+    <p className="dim">Invoice issued by the mint at {new URL(row.value.agreement.mint).hostname}. Paying it locks the sats in escrow; nobody, including wot-pay, can take them alone.</p>
+    {open?<><a className="btn primary" href={`lightning:${op.invoice}`}>Open in Lightning wallet</a><Copy text={op.invoice}/><p className="fine">Pay before {clock(view.fundBy)}. A later payment is refunded, not used.</p></>:<p className="hint warn">The funding window has closed. Do not pay this invoice now; if you already paid, check below and the escrow will be refunded.</p>}
+    <button className="btn ghost" disabled={busy} onClick={()=>run(async()=>setWaiting(await market.completeLightning(row)?'':'Payment not received yet. This page keeps checking.'))}>I paid · check now</button>{waiting&&<p role="status" className="dim">{waiting}</p>}</div>
+}
+// Anyone in the trade can confirm with the mint that the escrow still exists.
+function EscrowCheck({row,market}) {
+  const a=row.value.agreement,[result,setResult]=useState(null),[error,setError]=useState('')
+  const label={locked:'Locked and unspent at the mint',spent:'Released by the mint',pending:'Being settled at the mint'}
+  return <details className="trust"><summary>Where are my sats?</summary>
+    <p>wot-pay never holds your money. The mint at {new URL(a.mint).hostname} holds it, locked so that no single person can move it: any two of the requester, payer and arbitrator together, or the requester alone after {day(a.refundAfter)}.</p>
+    <button className="btn ghost" onClick={async()=>{setError('');try{setResult(await market.checkEscrow(row))}catch(e){setError(e.message)}}}>Check at the mint now</button>
+    {result&&<p role="status">{sats(result.sats)} · {label[result.state]} · checked {new Date(result.checkedAt).toLocaleTimeString()}</p>}{error&&<p className="hint warn">{error}</p>}</details>
+}
 function PrivateTrade({row,market,signer,busy,run}) {
   const [token,setToken]=useState(''),[note,setNote]=useState(''),[requesterAmount,setRequesterAmount]=useState('0'),[payerAmount,setPayerAmount]=useState(String(row.value.agreement.payerSats)),[fee,setFee]=useState('0')
   const a=row.value.agreement,v=row.view,id=row.id.slice(6),requester=signer.pubkey===a.requester
@@ -36,10 +57,12 @@ function PrivateTrade({row,market,signer,busy,run}) {
     <h3>{rupees(a.paise/100)} · {sats(a.payerSats)}</h3><p role="status">{v.status.replaceAll('-',' ')}</p>
     <p>You are the {requester?'requester':signer.pubkey===a.payer?'payer':'arbitrator'}.</p>
     <dl className="agreement-terms"><dt>Merchant</dt><dd>{a.destination.payee||a.destination.vpa}</dd><dt>UPI ID · private</dt><dd>{a.destination.vpa}</dd><dt>Payer receives</dt><dd>{sats(a.payerSats)}</dd><dt>Platform fee</dt><dd>None</dd><dt>Release allowance</dt><dd>{sats(a.releaseFeeSats)}</dd><dt>Funding allowance</dt><dd>{sats(a.fundingFeeSats)}</dd><dt>Maximum requester cost</dt><dd>{sats(a.escrowSats+a.fundingFeeSats)}</dd></dl>
+    {row.value.proofs?.length>0&&<EscrowCheck row={row} market={market}/>}
     <details><summary>Mint, arbitrator and agreement</summary><p>{a.mint}</p><p className="mono">Arbitrator: {a.arbitrator}</p><p className="mono">Agreement: {id}</p><p>Any two of the requester, payer and arbitrator can settle. From {day(a.refundAfter)} the requester alone can also refund unresolved escrow, so disputes must be resolved before then. Support cannot replace a signing key.</p></details>
     {payer&&v.needsPayerAccept&&<button className="btn primary" disabled={busy} onClick={()=>act('accept')}>Accept these exact terms</button>}
     {requester&&v.needsPayerAccept&&<p className="dim">Waiting for the payer to accept these exact terms.</p>}
-    {v.canFund&&requester&&<div><p>The payer has committed to these exact terms. Accept by funding escrow from your Cashu wallet; the token must cover escrow and disclosed mint costs. There is no platform fee.</p><textarea value={token} onChange={e=>setToken(e.target.value)} spellCheck={false} placeholder="Cashu funding token" aria-label="Funding token"/><button className="btn primary" disabled={busy||!market.config.protectedEnabled||!token} onClick={()=>run(()=>market.fund(row,token))}>Accept &amp; fund escrow</button>{!market.config.protectedEnabled&&<p className="dim">Deployment mint verification is still required. Real funding is disabled.</p>}</div>}
+    {v.canFund&&requester&&!row.value.lightningOperation&&!row.value.fundingOperation&&<div><p>The payer has committed to these exact terms. Accept by funding escrow before {clock(v.fundBy)}. There is no platform fee.</p><button className="btn primary" disabled={busy||!market.config.protectedEnabled} onClick={()=>run(()=>market.prepareLightning(row))}>Accept &amp; fund with Lightning</button><details><summary>Fund with ecash instead (advanced)</summary><p className="dim">Paste ecash you already hold at {new URL(a.mint).hostname}. It must cover escrow and disclosed mint costs.</p><textarea value={token} onChange={e=>setToken(e.target.value)} spellCheck={false} placeholder="Cashu funding token" aria-label="Funding token"/><button className="btn ghost" disabled={busy||!market.config.protectedEnabled||!token} onClick={()=>run(()=>market.fund(row,token))}>Accept &amp; fund with ecash</button></details>{!market.config.protectedEnabled&&<p className="dim">Deployment mint verification is still required. Real funding is disabled.</p>}</div>}
+    {requester&&!v.funded&&row.value.lightningReady&&<LightningInvoice row={row} view={v} market={market} busy={busy} run={run}/>}
     {requester&&!v.funded&&row.value.fundingOperation&&<button className="btn ghost" disabled={busy||!market.config.protectedEnabled} onClick={()=>run(()=>market.fund(row,''))}>Reconcile saved funding operation</button>}
     {payer&&!v.funded&&v.notice&&<button className="btn primary" disabled={busy} onClick={()=>run(()=>market.verifyIncomingFunding(row))}>Verify escrow at the mint</button>}
     {payer&&v.disputeDue&&<p className="hint warn" role="alert">The requester has not confirmed your payment for 24 hours. Report a problem now so the arbitrator can review it before {day(a.refundAfter)}, when the requester could refund alone.</p>}

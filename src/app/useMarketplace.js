@@ -4,9 +4,9 @@ import { createVault } from '../marketplace/vault.js'
 import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
-import { marketplaceConfig, assertDeploymentAgreement } from '../marketplace/config.js'
+import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits } from '../marketplace/config.js'
 import { newRecoverySecret } from '../recovery.js'
-import { connectMint, prepareFunding, completeFunding, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
+import { connectMint, prepareFunding, completeFunding, prepareLightningFunding, completeLightningFunding, requireBackup, verifyFunding, prepareResolution, signResolution, completeResolution, validateResolutionOperation } from '../marketplace/escrow.js'
 import { backupOperation, syncPrivateBackup } from '../marketplace/backup.js'
 import { requireFreeSlot, validateResolution, payerCommitted } from '../marketplace/protocol.js'
 import { getEncodedToken, getPubKeyFromPrivKey } from '@cashu/cashu-ts'
@@ -114,6 +114,7 @@ export function useMarketplace(client, signer) {
     if(!vault||!inbox)throw new Error('Enable your private inbox before requesting a quote.')
     const raw=publicEvents.get(listing.id)
     if(!raw||!currentListings([...publicEvents.values()],clock).some(l=>l.id===listing.id)||listing.pubkey===signer.pubkey)throw new Error('Choose an available offer from another person.')
+    assertWithinLimits(config,paise,await recentPaise())
     const requestId=newRecoverySecret(),escrowKey=createEscrowKey()
     const payload={listing:raw,paise,payerSats,escrowKey:escrowKey.pubkey}
     if(listing.type==='payer-listing')payload.destination=destination
@@ -143,6 +144,7 @@ export function useMarketplace(client, signer) {
     const escrowKey=createEscrowKey(),ownRole=requester===signer.pubkey?'requester':'payer'
     const panel=config.panel.find(p=>![requester,payer].includes(p.pubkey))
     if(!panel)throw new Error('No independent arbitrator is configured.')
+    assertWithinLimits(config,request.payload.paise,await recentPaise())
     // A payer's proposal is also the payer's acceptance of these exact terms.
     if(ownRole==='payer')await commitAsPayer(null)
     const now=Math.floor(Date.now()/1000)
@@ -160,6 +162,7 @@ export function useMarketplace(client, signer) {
     if(action==='accept') {
       if(me!==a.payer||!view.needsPayerAccept||!inbox)throw new Error('Quote expired, already accepted, or private inbox is not ready.')
       assertDeploymentAgreement(config,a)
+      assertWithinLimits(config,a.paise,await recentPaise(row.id))
       await commitAsPayer(row.id)
       payload={...payload,re:view.proposal.id}
     }
@@ -192,28 +195,81 @@ export function useMarketplace(client, signer) {
   }
   // The requester accepts by funding: the notice references the payer's
   // signed commitment, and the saved swap is completed exactly once.
-  async function fund(row,token) {
+  // Rupees committed in this browser's trades over the last day, for pilot limits.
+  async function recentPaise(exceptId) {
+    const since=Math.floor(Date.now()/1000)-86400
+    let sum=0
+    for(const r of await vault.snapshot())if(r.value.kind==='trade'&&r.id!==exceptId&&r.value.agreement.createdAt>=since) {
+      const v=viewOf(r)
+      if(v.offered&&!v.declined&&v.status!=='funding-expired')sum+=r.value.agreement.paise
+    }
+    return sum
+  }
+  // Checks shared by both funding methods. A trade keeps the one method it
+  // started with: funding it twice would lock the requester's sats twice.
+  async function fundingRow(row,method) {
     if(!config.protectedEnabled)throw new Error('Real mint operations are disabled until deployment integration checks pass.')
     row=await vault.read(row.id)
     const a=row.value.agreement,view=viewOf(row)
     if(signer.pubkey!==a.requester)throw new Error('Only the requester funds this agreement.')
     assertDeploymentAgreement(config,a)
     if(row.value.evidence.funding?.verified)throw new Error('Already funded. Retry pending messages instead of funding again.')
-    if(!view.offered||!view.canFund&&!row.value.fundingOperation)throw new Error('Funding window closed or the payer has not committed.')
-    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const v=viewOf(r);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...v,occupiesSlot:v.occupiesSlot||!!r.value.fundingOperation&&!v.completed}}})
+    const [saved,other]=method==='lightning'?[row.value.lightningOperation,row.value.fundingOperation]:[row.value.fundingOperation,row.value.lightningOperation]
+    if(other)throw new Error('This trade already has a saved funding attempt by the other method. Finish that one instead.')
+    if(!view.offered||!view.canFund&&!saved)throw new Error('Funding window closed or the payer has not committed.')
+    const latestTrades=(await vault.snapshot()).filter(r=>r.value.kind==='trade').map(r=>{const v=viewOf(r);return {id:r.id.slice(6),agreement:r.value.agreement,view:{...v,occupiesSlot:v.occupiesSlot||!!(r.value.fundingOperation||r.value.lightningOperation)&&!v.completed}}})
     requireFreeSlot(a.payer,latestTrades,row.id.slice(6))
-    const wallet=await mintFor(a)
-    const backup=operation=>backupOperation(vault,signer,operation,fetch,client)
-    if(!row.value.fundingOperation) {
-      // v4 tokens carry short keyset ids that only the mint's wallet can expand.
-      const decoded=wallet.decodeToken(token.trim())
-      if(decoded.mint.replace(/\/$/,'')!==a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.')
-      row=await save(row,{fundingOperation:await prepareFunding(wallet,a,decoded.proofs)})
-    }
-    const result=await completeFunding(wallet,a,row.value.fundingOperation,backup)
+    if(!saved)assertWithinLimits(config,a.paise,await recentPaise(row.id))
+    return {row,a,view,wallet:await mintFor(a),backup:operation=>backupOperation(vault,signer,operation,fetch,client)}
+  }
+  async function announceFunding(row,view,result) {
     row=await save(row,{proofs:result.send,change:result.keep,evidence:{...row.value.evidence,funding:result.funding}})
     await sendTrade(row,'funding',{proofs:result.send,re:view.acceptance.id})
     await reload()
+  }
+  // Advanced: the requester pastes ecash already held at the agreed mint.
+  async function fund(row,token) {
+    const f=await fundingRow(row,'ecash')
+    row=f.row
+    if(!row.value.fundingOperation) {
+      // v4 tokens carry short keyset ids that only the mint's wallet can expand.
+      const decoded=f.wallet.decodeToken(token.trim())
+      if(decoded.mint.replace(/\/$/,'')!==f.a.mint||decoded.unit&&decoded.unit!=='sat')throw new Error('Funding token has the wrong mint or unit.')
+      row=await save(row,{fundingOperation:await prepareFunding(f.wallet,f.a,decoded.proofs)})
+    }
+    await announceFunding(row,f.view,await completeFunding(f.wallet,f.a,row.value.fundingOperation,f.backup))
+  }
+  // Default: the mint issues a Lightning invoice and mints straight into the
+  // escrow lock. The exact outputs are replicated before the invoice is shown.
+  async function prepareLightning(row) {
+    const f=await fundingRow(row,'lightning')
+    row=f.row
+    if(!row.value.lightningOperation)row=await save(row,{lightningOperation:await prepareLightningFunding(f.wallet,f.a,row.value.escrowKey)})
+    if(!row.value.lightningReady) {
+      await requireBackup(row.value.lightningOperation,f.backup)
+      row=await save(row,{lightningReady:true})
+    }
+    await reload()
+    return row.value.lightningOperation
+  }
+  // Returns false while the invoice is unpaid.
+  async function completeLightning(row) {
+    const f=await fundingRow(row,'lightning')
+    if(!f.row.value.lightningReady)throw new Error('Prepare the invoice first.')
+    const result=await completeLightningFunding(f.wallet,f.a,f.row.value.lightningOperation,f.backup)
+    if(!result)return false
+    await announceFunding(f.row,f.view,result)
+    return true
+  }
+  // Read-only check that anyone in the trade can run: is the escrow still
+  // locked and unspent at the mint?
+  async function checkEscrow(row) {
+    row=await vault.read(row.id)
+    const proofs=row.value.proofs
+    if(!proofs?.length)throw new Error('No verified escrow on this device yet.')
+    const states=await (await mintFor(row.value.agreement)).checkProofsStates(proofs)
+    const state=states.every(s=>s.state==='UNSPENT')?'locked':states.every(s=>s.state==='SPENT')?'spent':'pending'
+    return {state,sats:proofs.reduce((n,p)=>n+Number(p.amount),0),checkedAt:Date.now()}
   }
   // Escrow that arrives late, or after the payer committed elsewhere, is
   // declined with a signed message so both sides agree it is refund-only.
@@ -327,5 +383,5 @@ export function useMarketplace(client, signer) {
     if(!navigator.locks)throw new Error('This browser needs Web Locks support for private marketplace operations.')
     return navigator.locks.request(`wot-pay:${signer?.pubkey}:operations`,()=>fn(...args))
   }
-  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund)}
+  return {client,listings,trades,records,config,supported,inbox,error,vault,reload,enableInbox,publishListing:exclusive(publishListing),requestQuote:exclusive(requestQuote),propose:exclusive(propose),action:exclusive(action),retry:exclusive(retry),fund:exclusive(fund),verifyIncomingFunding:exclusive(verifyIncomingFunding),proposeResolution:exclusive(proposeResolution),approveResolution:exclusive(approveResolution),settle:exclusive(settle),verifyIncomingPayout:exclusive(verifyIncomingPayout),collectPayout:exclusive(collectPayout),escalate:exclusive(escalate),importArbitratorKey:exclusive(importArbitratorKey),timelockRefund:exclusive(timelockRefund),prepareLightning:exclusive(prepareLightning),completeLightning:exclusive(completeLightning),checkEscrow}
 }

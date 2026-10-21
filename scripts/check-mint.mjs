@@ -16,5 +16,7 @@ try {
   console.log(mode==='cache'
     ?'Mint metadata passed: indefinite NUT-19 swap cache.'
     :'Mint metadata passed as a NUT-09 restore candidate only. Add it to VITE_RESTORE_VERIFIED_MINTS only after a controlled lost-response restore test.')
+  const bolt11=!info.isSupported(4).disabled&&(info.isSupported(4).params||[]).some(m=>m.method==='bolt11'&&m.unit==='sat'),locked=info.isSupported(20).supported
+  console.log(bolt11&&locked?'Lightning funding available: bolt11 sat minting with NUT-20 locked quotes.':'Lightning funding unavailable (needs bolt11 sat minting and NUT-20); requesters must fund with ecash.')
   console.log(`NUT-09 restore advertised: ${restore?'yes':'no'}. Still required: controlled funding/release/refund, lost-response recovery, browser CORS and operator availability tests. No funds moved.`)
 }catch(e){console.error(`Mint check failed: ${e.message}`);process.exitCode=1}

@@ -2,7 +2,7 @@ import { Wallet, OutputData, SigAll, serializeSwapPreview, deserializeSwapPrevie
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import { canonical, contentHash, validateAgreement } from './protocol.js'
 import { assertSwapRecoveryPolicy } from './mint-policy.js'
-import { completeOrRestoreSwap } from './swap-recovery.js'
+import { completeOrRestoreSwap, completeOrRestoreMint } from './swap-recovery.js'
 
 const amount = n => typeof n?.toNumber === 'function' ? n.toNumber() : Number(n)
 const total = proofs => proofs.reduce((n,p) => n + BigInt(amount(p.amount)), 0n)
@@ -68,6 +68,38 @@ export async function completeFunding(wallet, agreement, operation, durableBacku
   const result = plainSwap(await completeOrRestoreSwap(wallet,preview))
   const funding = await verifyFunding(wallet, agreement, result.send)
   return { ...result, funding }
+}
+
+// Lightning funding (NUT-04): the requester pays an invoice the mint itself
+// issued, and the mint signs outputs that are already escrow-locked, so the
+// sats never pass through anyone's spendable balance. The quote is locked
+// (NUT-20) to the requester's per-trade key so nobody else can mint it. The
+// whole preview is saved and replicated before the invoice is shown.
+const lockedSecrets = outputData => outputData.map(o => ({ secret: new TextDecoder().decode(o.secret), amount: o.blindedMessage.amount }))
+const serializeMint = p => ({ method: p.method, quote: { quote: p.quote.quote, request: p.quote.request, expiry: p.quote.expiry ?? null, pubkey: p.quote.pubkey ?? null, amount: amount(p.quote.amount) }, signature: p.payload.signature ?? null, legacySignature: p.legacySignature ?? null, outputData: p.outputData.map(o => OutputData.serialize(o)) })
+export function deserializeMint(s) {
+  const outputData = s.outputData.map(o => OutputData.deserialize(o))
+  return { method: s.method, quote: s.quote, outputData, keysetId: outputData[0]?.blindedMessage.id, payload: { quote: s.quote.quote, outputs: outputData.map(o => o.blindedMessage), ...(s.signature ? { signature: s.signature } : {}) }, ...(s.legacySignature ? { legacySignature: s.legacySignature } : {}) }
+}
+export async function prepareLightningFunding(wallet, agreement, quoteKey) {
+  validateAgreement(agreement)
+  if (!wallet.getMintInfo().isSupported(20).supported) throw new Error('This mint cannot lock Lightning quotes (NUT-20). Fund with ecash instead.')
+  const quote = await wallet.createLockedMintQuote(agreement.escrowSats, quoteKey.pubkey)
+  if (amount(quote.amount) !== agreement.escrowSats || quote.pubkey && quote.pubkey !== quoteKey.pubkey) throw new Error('The mint returned a quote for different terms.')
+  const preview = await wallet.prepareMint('bolt11', agreement.escrowSats, quote, { privkey: quoteKey.secret }, { type: 'p2pk', options: escrowLock(agreement) })
+  validateLockedProofs(agreement, lockedSecrets(preview.outputData))
+  return { agreementId: await contentHash(agreement), kind: 'lightning-funding', revision: crypto.randomUUID(), invoice: quote.request, expiry: quote.expiry ?? null, preview: serializeMint(preview) }
+}
+// Returns null while the invoice is unpaid; otherwise mints exactly once.
+export async function completeLightningFunding(wallet, agreement, operation, durableBackup) {
+  if (operation.kind !== 'lightning-funding' || operation.agreementId !== await contentHash(agreement)) throw new Error('Funding operation belongs to a different agreement.')
+  const preview = deserializeMint(operation.preview)
+  validateLockedProofs(agreement, lockedSecrets(preview.outputData))
+  const { state } = await wallet.checkMintQuoteBolt11(preview.quote.quote)
+  if (state === 'UNPAID') return null
+  await requireBackup(operation, durableBackup)
+  const send = (await completeOrRestoreMint(wallet, preview)).map(p => ({ ...p, amount: amount(p.amount) }))
+  return { keep: [], send, funding: await verifyFunding(wallet, agreement, send) }
 }
 
 function recipientOutput(output, expected) {

@@ -1,4 +1,4 @@
-import { Amount, getDecodedToken, createNewMintKeys, createBlindSignature, createDLEQProof, pointFromHex, SigAll, meetsSignerThreshold, serializeSwapPreview, OutputData } from '@cashu/cashu-ts'
+import { Amount, getDecodedToken, signMintQuote, verifyMintQuoteSignature, createNewMintKeys, createBlindSignature, createDLEQProof, pointFromHex, SigAll, meetsSignerThreshold, serializeSwapPreview, OutputData } from '@cashu/cashu-ts'
 import { bytesToHex } from 'nostr-tools/utils'
 // In-process test mint: real blind signatures and DLEQ proofs, zero-value test
 // money only. Its ledger checks spending signatures, optionally caches exact
@@ -24,8 +24,34 @@ export function testMint(agreement, { cache = true } = {}) {
     return o.toProof({ ...sig, amount: Amount.from(amount) }, getKeyset(b.id))
   }
   const issue = outputs => outputs.map(sign)
+  const quotes = new Map()
+  const wire = outputs => outputs.map(o => ({ amount: Number(o.blindedMessage?.amount ?? o.amount), id: o.blindedMessage?.id ?? o.id, B_: o.blindedMessage?.B_ ?? o.B_ }))
   return {
     issue, rotate, getKeyset, faults, signed,
+    // NUT-04/20: locked bolt11 quotes. payInvoice stands in for a Lightning payment.
+    getMintInfo: () => ({ isSupported: n => ({ supported: !(faults.unsupported || []).includes(n) }) }),
+    payInvoice: id => { quotes.get(id).state = 'PAID' },
+    createLockedMintQuote: async (amount, pubkey) => {
+      const id = bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
+      quotes.set(id, { quote: id, request: `lnbcrt${amount}test${id}`, amount: Amount.from(amount), state: 'UNPAID', expiry: Math.floor(Date.now() / 1000) + 600, pubkey })
+      return { ...quotes.get(id) }
+    },
+    checkMintQuoteBolt11: async id => ({ ...quotes.get(typeof id === 'string' ? id : id.quote) }),
+    prepareMint: async (method, amount, quote, config, outputType) => {
+      const outputData = outputType?.type === 'p2pk' ? OutputData.createP2PKData(outputType.options, Number(amount), getKeyset()) : OutputData.createRandomData(Number(amount), getKeyset())
+      return { method, outputData, keysetId: active, quote, payload: { quote: quote.quote, outputs: outputData.map(o => o.blindedMessage), signature: signMintQuote(config.privkey, quote.quote, wire(outputData)) } }
+    },
+    completeMint: async preview => {
+      if (faults.fail) { faults.fail = false; throw new Error('network error: request not delivered') }
+      const q = quotes.get(preview.payload.quote)
+      if (!q || q.state !== 'PAID') throw new Error(q?.state === 'ISSUED' ? 'quote already issued' : 'quote not paid')
+      if (!verifyMintQuoteSignature(q.pubkey, q.quote, wire(preview.outputData), preview.payload.signature)) throw new Error('mint rejected quote signature')
+      if (wire(preview.outputData).reduce((n, o) => n + o.amount, 0) !== Number(q.amount)) throw new Error('mint amount mismatch')
+      const proofs = issue(preview.outputData)
+      q.state = 'ISSUED'
+      if (faults.lose) { faults.lose = false; throw new Error('network error: response lost') }
+      return proofs
+    },
     expireCache: () => responses.clear(),
     markPending: proofs => proofs.forEach(p => pending.add(p.secret)),
     spendElsewhere: proofs => proofs.forEach(p => spent.add(p.secret)),

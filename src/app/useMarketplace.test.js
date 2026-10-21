@@ -93,6 +93,8 @@ async function market() {
   const arbitrator = deviceSigner(), arbitratorEscrow = createEscrowKey()
   vi.stubEnv('VITE_ARBITRATOR_PANEL', JSON.stringify([{ name: 'Test panel', pubkey: arbitrator.pubkey, escrowKey: arbitratorEscrow.pubkey }]))
   vi.stubEnv('VITE_PROTECTED_TRADES_ENABLED', 'true')
+  vi.stubEnv('VITE_PILOT_MAX_INR_PER_TRADE', '1000')
+  vi.stubEnv('VITE_PILOT_MAX_INR_PER_DAY', '2000')
   let wallet
   connectMint.mockImplementation(async agreement => (wallet ||= testMint(agreement)))
   const net = network(), requester = deviceSigner(), payer = deviceSigner()
@@ -187,4 +189,27 @@ it('prompts an unconfirmed payer to dispute, then lets the requester alone refun
   await until(async () => (await m.row(m.p)).view.events.some(e => e.action === 'payout'), 'refund receipt')
   await m.p.api().verifyIncomingPayout(await m.row(m.p))
   expect((await m.row(m.p)).view.completed).toBe(true)
+})
+
+it('funds by Lightning: the mint issues the invoice and mints straight into escrow, and ecash cannot fund it twice', async () => {
+  const m = await market()
+  const operation = await m.r.api().prepareLightning(await m.row(m.r))
+  expect(operation.invoice).toMatch(/^lnbc/)
+  expect((await m.row(m.r)).value.lightningReady).toBe(true)
+  expect(await m.r.api().completeLightning(await m.row(m.r))).toBe(false)
+  await expect(m.r.api().fund(await m.row(m.r), await m.token())).rejects.toThrow('other method')
+  m.wallet().payInvoice(operation.preview.quote.quote)
+  expect(await m.r.api().completeLightning(await m.row(m.r))).toBe(true)
+  await until(async () => (await m.row(m.p)).view.notice, 'funding notice')
+  await m.p.api().verifyIncomingFunding(await m.row(m.p))
+  expect((await m.row(m.p)).view.canPay).toBe(true)
+  expect(await m.p.api().checkEscrow(await m.row(m.p))).toMatchObject({ state: 'locked', sats: 1000 })
+})
+
+it('enforces the published pilot limit before any quote is sent', async () => {
+  const m = await market()
+  const listing = { v: 3, type: 'payer-listing', listingId: newRecoverySecret(), mint: 'https://mint.example', minPaise: 100, maxPaise: 500000, rateType: 'fixed', rate: '2', available: true, expiresAt: Math.floor(Date.now() / 1000) + 3600 }
+  await m.p.api().publishListing(listing)
+  const seen = await until(() => m.r.api().listings.find(l => l.listingId === listing.listingId), 'listing')
+  await expect(m.r.api().requestQuote(seen, 100001, 2000, { vpa: 'merchant@upi' })).rejects.toThrow('per trade')
 })

@@ -19,9 +19,28 @@ export async function completeOrRestoreSwap(wallet, preview, privateKey) {
 }
 
 export async function restoreSwap(wallet, preview) {
-  const roles = { keep: preview.keepOutputs || [], send: preview.sendOutputs || [] }
+  const keep = preview.keepOutputs || [], send = preview.sendOutputs || []
+  const proofs = await restoreOutputs(wallet, [...keep, ...send])
+  return { keep: proofs.slice(0, keep.length), send: proofs.slice(keep.length) }
+}
+
+// NUT-04 counterpart: an unpaid quote surfaces the error (pay, then retry the
+// same saved mint); a paid but unissued quote surfaces it too, because retrying
+// the identical outputs is safe; an issued quote restores the saved outputs.
+export async function completeOrRestoreMint(wallet, preview) {
+  try { return await wallet.completeMint(preview) }
+  catch (error) {
+    const quote = await wallet.checkMintQuoteBolt11(preview.quote.quote).catch(() => null)
+    if (!quote) throw uncertain('The mint did not report the quote state.')
+    if (quote.state !== 'ISSUED') throw error
+    return restoreOutputs(wallet, preview.outputData)
+  }
+}
+
+// Restores exactly these saved outputs, in order.
+export async function restoreOutputs(wallet, list) {
   const saved = new Map()
-  for (const output of [...roles.keep, ...roles.send]) {
+  for (const output of list) {
     const b = output.blindedMessage
     if (saved.has(b.B_)) throw new Error('Saved operation repeats a blinded output.')
     saved.set(b.B_, output)
@@ -41,11 +60,10 @@ export async function restoreSwap(wallet, preview) {
   // Partial restoration means the swap may have spent the inputs elsewhere.
   if (signatures.size !== saved.size) throw uncertain('The mint restored only part of the saved outputs.')
   await wallet.ensureOperableKeysets([...new Set(outputs.map(o => o.id))])
-  const unblind = list => list.map(output => {
+  return list.map(output => {
     const keyset = wallet.getKeyset(output.blindedMessage.id)
     const proof = output.toProof(signatures.get(output.blindedMessage.B_), keyset)
     if (!hasValidDleq(proof, keyset, { require: true })) throw new Error('Restored output lacks valid mint cryptographic evidence.')
     return proof
   })
-  return { keep: unblind(roles.keep), send: unblind(roles.send) }
 }

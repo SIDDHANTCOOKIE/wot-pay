@@ -9,7 +9,8 @@ export const LISTING_KIND = 30078
 // keeps a republished message out of social feeds, where kind 1 would render.
 export const TRADE_KIND = 3406
 export const QUOTE_LIFETIME = 300
-export const FUNDING_WINDOW = 120
+// Long enough to pay a Lightning invoice; the payer's slot is reserved meanwhile.
+export const FUNDING_WINDOW = 600
 // After this delay the requester alone may refund unresolved escrow (NUT-11
 // locktime). Disputes must be resolved before then; 2-of-3 stays valid too.
 export const REFUND_DELAY = 14 * 86400

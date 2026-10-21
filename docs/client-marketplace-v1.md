@@ -9,7 +9,7 @@ There is no platform fee and no fee recipient. Optional zaps are offered through
 1. A payer advertises an amount range, price and mint. A requester advertises a QR job. Only amount/rate, mint, availability and identity are public.
 2. The requester sends a private quote request. For a payer advertisement it includes the merchant's UPI destination; for a QR job the requester's own proposal carries it.
 3. **The payer commits by signing the exact terms.** When the payer built the proposal, the proposal is the payer's signed commitment. When the requester built it, the payer signs an `accept` that references that proposal. Either is valid for five minutes.
-4. **The requester commits by funding.** "Accept & fund" locks escrow at the mint and sends a `funding` notice that references the payer's commitment. There is no separate requester accept.
+4. **The requester commits by funding.** "Accept & fund with Lightning" asks the agreed mint for an invoice; paying it from any Lightning wallet makes the mint sign outputs that are already escrow-locked. Ecash already held at that mint can be pasted instead (advanced). Either way a `funding` notice references the payer's commitment. There is no separate requester accept.
 5. The payer verifies the escrow at the mint, then pays the merchant via UPI and reports it. The requester confirms merchant credit.
 6. Both sign the exact payout and either submits it to the mint. The recipient verifies and collects.
 
@@ -18,7 +18,7 @@ Every trade message after the proposal names the message it answers (`payload.re
 ## Deadlines and late or declined escrow
 
 - Each device records when it first received every message. A message meets a deadline only if both its signed time and its local arrival time are within the deadline plus a 60-second grace, so a backdated message cannot slip in late.
-- Funding must arrive within two minutes of the payer's commitment (plus grace).
+- Funding must arrive within ten minutes of the payer's commitment (plus grace), long enough to pay a Lightning invoice. The invoice panel hides the payment link once the window closes.
 - Escrow that arrives late, or that reaches a payer already committed to another trade, is declined with a signed `escrow-declined` message. A payer may also decline any funded escrow before starting payment. Declined escrow never invites a UPI payment, frees the payer's slot, and can only be refunded in full to the requester; both sides see the same signed decline.
 - A payer's commitment pauses their advertisements and reserves their slot until on-time funding can no longer arrive. Funded and disputed trades hold the slot.
 
@@ -28,6 +28,14 @@ Every trade message after the proposal names the message it answers (`payload.re
 - After that time the requester can return unresolved escrow to themselves with one signature. The mint enforces the locktime, so a client that lies about the time is rejected, and the refund path can only pay the requester.
 - To protect payers, a payer whose reported payment stays unconfirmed for 24 hours is prompted to report a problem, and arbitration is expected to answer within 72 hours, well before the refund date. The UI shows the refund date on every trade.
 - This replaces "locked forever": lost keys or an unavailable arbitrator now delay a refund rather than destroy it.
+
+## Lightning funding and trust
+
+- The invoice comes straight from the agreed mint over HTTPS, never from the counterparty or relays. The quote is locked (NUT-20) to the requester's per-trade key, so nobody else can mint it.
+- The exact escrow-locked outputs and the quote are saved and replicated to two Blossom hosts before the invoice is shown. If the response is lost: an unpaid or paid-but-unissued quote retries the same saved outputs; an issued quote restores them with NUT-09.
+- A trade is funded by one method only; a saved Lightning attempt blocks ecash funding and vice versa, so sats are never locked twice.
+- "Where are my sats?" on every funded trade states who can move the escrow and checks its live state at the mint.
+- Published pilot limits (`VITE_PILOT_MAX_INR_PER_TRADE`, `VITE_PILOT_MAX_INR_PER_DAY`) are shown in the marketplace and enforced before quoting, proposing, accepting and funding. Protected trading stays disabled until both are set.
 
 ## Implemented
 

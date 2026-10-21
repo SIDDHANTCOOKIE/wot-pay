@@ -68,3 +68,24 @@ it('shows the payer a dispute prompt and the requester a solo refund once their 
   expect(page(t.agreement.requester, t.agreement.refundAfter)).toContain('Refund escrow to me')
   expect(page(t.agreement.requester, t.agreement.refundAfter-1)).not.toContain('Refund escrow to me')
 })
+it('shows the mint-issued invoice only while the funding window is open, and the escrow trust panel', async () => {
+  const { testTrade } = await import('../marketplace/fixtures.js')
+  const { tradeView } = await import('../marketplace/protocol.js')
+  const { default: ProtectedTrades } = await import('./ProtectedTrades.jsx')
+  const t = await testTrade(), proposal = t.sign('payer','proposal',{})
+  const page = (value, evidence = {}) => {
+    const row = { id: `trade:${t.id}`, value: { agreement: t.agreement, events: [proposal], evidence, ...value } }
+    return render(ProtectedTrades, { signer: { pubkey: t.agreement.requester }, market: { records: [], trades: [{ ...row, view: tradeView(t.agreement,t.id,row.value.events,evidence) }], config: { protectedEnabled: true } } })
+  }
+  expect(page({})).toContain('Accept &amp; fund with Lightning')
+  const pending = { lightningReady: true, lightningOperation: { invoice: 'lnbc1000test' } }
+  expect(page(pending)).toContain('href="lightning:lnbc1000test"')
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime((proposal.created_at + 601) * 1000)
+  try {
+    expect(page(pending)).toContain('Do not pay this invoice now')
+    expect(page(pending)).not.toContain('href="lightning:')
+  } finally { vi.useRealTimers() }
+  const funded = page({ proofs: [{ amount: 1000 }] }, { funding: { agreementId: t.id, verified: true } })
+  expect(funded).toContain('Where are my sats?')
+  expect(funded).toContain('wot-pay never holds your money')
+})
