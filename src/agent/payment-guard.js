@@ -16,5 +16,5 @@ export async function mayDeliverMessage(item, { events, query, me }) {
   }
   const state = tradeState(offer, [...events.values()])
   if (!sawAcceptance && state.accepted && state.claim?.id === item.claimId) throw new Error('Maker acceptance not verified by fresh relay read')
-  return sawAcceptance && state.accepted && state.claim?.id === item.claimId && state.claim.pubkey === me && state.status === 'claimed'
+  return !state.cancellationRequested && sawAcceptance && state.accepted && state.claim?.id === item.claimId && state.claim.pubkey === me && state.status === 'claimed'
 }

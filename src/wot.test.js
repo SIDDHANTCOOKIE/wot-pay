@@ -51,7 +51,7 @@ describe('wot', () => {
     expect(r.explain(A).settles).toBe(r.explain(C).settles)
   })
 
-  it('a dispute lowers rank in a later query', () => {
+  it('a pending dispute is visible without a misconduct ranking penalty', () => {
     const stamps = [stamp('settled', V, A, 'o1'), stamp('settled', V, B, 'o2'), stamp('settled', A, B, 'o3')]
     const before = ranker({ viewer: V, followLists: graph, stamps })
     expect(before.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(A)
@@ -62,8 +62,9 @@ describe('wot', () => {
       followLists: graph,
       stamps: [...stamps, stamp('disputed', B, A, 'o4')],
     })
-    expect(after.explain(A).score).toBeLessThan(b0)
-    expect(after.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(B)
+    expect(after.explain(A).score).toBe(b0)
+    expect(after.explain(A).disputes).toBeGreaterThan(0)
+    expect(after.rank([offerBy(A), offerBy(B)])[0].pubkey).toBe(A)
   })
 
   it('more settles raise the score', () => {
@@ -150,11 +151,11 @@ describe('bounded reputation', () => {
     expect(r.explain(C).settles).toBe(1.5)
     expect(r.explain(C).score).toBeLessThan(r.explain(A).score)
   })
-  it('20 repeated disputes cannot drive a direct follow below a quarter of its base', () => {
+  it('unreviewed repeated disputes do not penalize the relationship score', () => {
     const stamps = Array.from({ length: 20 }, (_, i) => stamp('disputed', B, A, `dispute-${i}`, 100 + i))
     const r = ranker({ viewer: V, followLists: graph, stamps })
     expect(r.explain(A).disputes).toBe(1)
-    expect(r.explain(A).score).toBe(0.25)
+    expect(r.explain(A).score).toBe(1)
   })
   it('limits aggregate receipt weight even when many graph members collaborate', () => {
     const keys = Array.from({ length: 10 }, (_, i) => `friend-${i}`)
@@ -173,4 +174,17 @@ it('graph and editor agree on equal-time lists independent of arrival order',()=
  const a={...follows(V,[A]),id:'a'},b={...follows(V,[B]),id:'b'}
  expect([...buildGraph([a,b]).get(V)]).toEqual([A]);expect([...buildGraph([b,a]).get(V)]).toEqual([A])
  expect(buildGraph([null,{...a,created_at:Math.floor(Date.now()/1000)+61}]).size).toBe(0)
+})
+it('credits attested completions only through witnesses inside the viewer graph, capped per pair', async () => {
+  const { tallyCompletions, hopDistances } = await import('./wot.js')
+  const c = (i, a, b) => ({ commitment: String(i).padStart(64, '0'), pubkey: a, counterparty: b, amount: 'under-500', week: 100 })
+  const both = (i, a, b) => [c(i, a, b), c(i, b, a)]
+  const [me, friend, stranger, sybilA, sybilB] = ['1', '2', '3', '4', '5'].map(x => x.repeat(64))
+  const dist = hopDistances(new Map([[me, new Set([friend])]]), me)
+  const tally = tallyCompletions([...both(1, friend, stranger), ...both(2, sybilA, sybilB)], dist)
+  expect(tally.get(stranger)).toBeGreaterThan(0)
+  expect(tally.has(friend)).toBe(false)
+  expect(tally.has(sybilA) || tally.has(sybilB)).toBe(false)
+  const repeated = tallyCompletions([1, 2, 3, 4, 5, 6].flatMap(i => both(i, friend, stranger)), dist)
+  expect(repeated.get(stranger)).toBe(3)
 })

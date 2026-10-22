@@ -1,3 +1,7 @@
+# Current revenue policy: voluntary support
+
+There is no platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement.
+
 <div align="center">
 
 <img src="docs/banner.svg" alt="wot-pay: signed coordination, explicit trust" width="100%" />
@@ -20,7 +24,22 @@ UPI and sats don't share a payment rail. I built a Nostr client that lets someon
 
 This is a hackathon prototype for signed payment coordination. It does not verify payments or guarantee settlement.
 
-## how it works
+## Client-side protected marketplace
+
+This branch implements private quotes, payer advertisements, immutable agreements and a Cashu escrow adapter. **Real mint operations default to disabled** until deployment configuration and provider integration checks pass. No custom backend is introduced.
+
+- Browse first; Pay a QR / Earn sats / My trades. Dismissible example, opt-in camera, image and manual UPI entry. Older public offers are collapsed separately.
+- Fixed or market-linked prices, unrestricted premiums and discounts, trust/history ranking and mint filters. The payer signs the exact terms; the requester accepts by funding escrow. Late or declined escrow is refund-only.
+- Signed private messages inside Nostr gift wraps; public advertisements exclude VPA, payee and QR details. Private agreements and operation journals are encrypted in IndexedDB.
+- Permanent requester/payer/arbitrator 2-of-3 Cashu locks with SIG_ALL output binding, DLEQ validation, release/refund/mutual split, exact-request retries, recipient payout verification and collection for an external Cashu wallet.
+- Three-host encrypted Blossom backups, two verified copies before consuming operations, two verified relay pointers for discovery, automatic repair while open, and recovery from an older downloaded kit.
+
+Copy [.env.example](.env.example) to .env to configure public arbitrator keys. Keep mint operations disabled until the [release gates and limitations](docs/client-marketplace-v1.md) are addressed. Tests use an in-process mint and storage fixtures, not real funds. Public Nostr history is not proof of a UPI payment. Reviewed reputation penalties and production operator processes remain release work.
+
+A device identity is currently required for private trade signing and storage. The local identity key remains in browser storage; encryption does not protect against a compromised browser or same-origin script. The recovery kit contains its secret and must be protected like a private key. External signers can browse; their private escrow integration is not implemented.
+
+## Legacy flow (existing offers only)
+
 
 ```text
 scan or type UPI -> signed offer -> claim -> pay UPI externally
@@ -36,7 +55,7 @@ scan or type UPI -> signed offer -> claim -> pay UPI externally
 
 ## the trust orbit
 
-The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; disputes lower it. Only stamps from authors in your graph count.
+The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; pending complaints remain visible without a misconduct penalty. Only stamps from authors in your graph count.
 
 Following someone is not a payment guarantee. In-graph collusion can manufacture reputation, even when the referenced signed offer and claim exist. The ranker requires trade existence and maker/taker participation, but cannot prove money changed hands. A pasted npub selects whose follows to read; it does not authenticate you as that person.
 
@@ -79,9 +98,9 @@ npm test
 npm run dev
 ```
 
-On first load, choose Create a key, Use an existing key, or Explore as guest. Creating a key is explicit; guest mode is read-only. A device key is stored in plaintext localStorage, with an explicit export/import backup UI. Clearing site data loses that identity and access to its encrypted messages. Treat this as a demo key, not your primary wallet key.
+On first load, browse as a guest. Choose an identity when you want to act on an existing trade. Creating a key is explicit; guest mode is read-only. A device key is stored in plaintext localStorage, with an explicit export/import backup UI. Clearing site data loses that identity and access to its encrypted messages. Treat this as a demo key, not your primary wallet key.
 
-For a no-money state-flow demonstration, open a normal and private window, post using a sample UPI ID, claim with a sample Lightning address, and stamp both sides. Those buttons alone do not move or verify money. Label the demonstration simulated.
+For a no-money preview, browse the labeled example or enter a sample UPI ID and compare fixed/market pricing. New request publication is disabled on this branch.
 
 Camera access needs HTTPS on a phone. Use the [live demo](https://wot-pay.vercel.app/) and [phone checklist](docs/device-checklist.md). Use a test mint for ecash demonstrations and do not pay a real UPI request without deciding to spend that money.
 
@@ -112,9 +131,9 @@ Main passes 225 unit tests and the production build in CI, and CI deploys the sa
 
 There is no atomic swap, UTR verification, custody or escrow. Deterministic claim ordering only agrees when devices see the same events. A pending/lost claim is visible and payment links are withheld while pending, but the settling buffer is not finality. The browser loads one day of board events; recovery of older trades is limited. Settlement risk is made visible, not removed or economically measured.
 
-## next
+## Earlier prototype roadmap
 
-Optional escrow for the sats leg is possible future work. It is not part of this design and is not implemented in this demo.
+Protected 2-of-3 escrow is agreed future work for the marketplace; it is not implemented in this branch. See the migration release gates above.
 
 Real-money settlement demonstrations, test-mint redemption and broader phone testing follow. The hosted app and a short demo recording are linked at the top.
 

@@ -5,3 +5,5 @@ dist/
 
 .agent-state.json
 .agent-state.json.tmp
+
+.tmp/

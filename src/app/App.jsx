@@ -1,3 +1,7 @@
+import MyTrades from './MyTrades.jsx'
+import SupportZap from './SupportZap.jsx'
+import RecoverySettings from './RecoverySettings.jsx'
+import { useMarketplace } from './useMarketplace.js'
 import { useEffect, useState } from 'react'
 import { toHexPubkey, prefs, restoreSigner, signOut } from './identity.js'
 import { useBoard } from './useBoard.js'
@@ -15,14 +19,14 @@ export default function App() {
   const [signer, setSigner] = useState(null)
   const [signerError, setSignerError] = useState('')
   const [restoring, setRestoring] = useState(true)
-  const [guest, setGuest] = useState(false)
+  const [guest, setGuest] = useState(true)
   useEffect(() => {
     let live = true,
       current
     restoreSigner()
       .then((s) => {
         current = s
-        if (live) setSigner(s)
+        if (live) { setSigner(s); if (s) setGuest(false) }
         else s?.close?.()
       })
       .catch(
@@ -48,20 +52,22 @@ export default function App() {
     signOut()
     signer?.close?.()
     setSigner(null)
-    setGuest(false)
+    setGuest(true)
     setSignerError('')
     setActiveId(null)
     setShowSettings(false)
   }
   const [tab, setTab] = useState(() =>
-    location.hash === '#board' || location.hash.startsWith('#offer/') ? 'board' : 'pay',
+    location.hash === '#pay' ? 'pay' : location.hash === '#trades' ? 'trades' : 'board',
   )
+  const [boardOfferId, setBoardOfferId] = useState(null)
   const [activeId, setActiveId] = useState(() => sessionStorage.getItem('wot-pay:active'))
   const [trustInput, setTrustInput] = useState(prefs.trustNpub())
   const [showSettings, setShowSettings] = useState(false)
   const trustRoot = signer ? toHexPubkey(prefs.trustNpub()) || signer.pubkey : undefined
   const [trustRevision, setTrustRevision] = useState(0)
   const live = useBoard(trustRoot, signer?.pubkey, trustRevision)
+  const market = useMarketplace(live.client, signer)
   const cash = useTokens(live.client, signer)
   const board = { ...live, cash, publish: async (event) => {
     if (!signer) throw new Error('Choose a signing identity before publishing.')
@@ -97,35 +103,38 @@ export default function App() {
             className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
             title={`${board.relaysUp ?? '…'}/${board.total} relays`}
           />
-          {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Guest · choose identity'}
+          {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Choose identity'}
         </button>
       </header>
 
       <main>
+        {board.historyError && <p className="hint warn" role="status">{board.historyError}</p>}
         <InstallHint hidden={showSettings} />
-        {guest && <div className="card"><h2>Guest demo mode</h2><p className="dim">Read-only demo: the board shows public offers. Trust ranking uses follow lists and trade claims, not payment proof. With no trust graph selected, offers are unranked; strangers may not send sats.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
-        {tab === 'pay' ? (
-          <PayScreen board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
+        {guest && <div className="card"><p>Browse first. Choose an identity when you’re ready to trade.</p><button className="btn ghost" onClick={requireIdentity}>Choose an identity to trade</button></div>}
+        {tab === 'trades' ? <MyTrades market={market} board={board} signer={signer} onRequireIdentity={requireIdentity} onOpen={offer => { if (offer.pubkey === signer.pubkey) { setActiveId(offer.id); setTab('pay') } else { setBoardOfferId(offer.id); setTab('board') } }} /> : tab === 'pay' ? (
+          <PayScreen market={market} onRequireIdentity={requireIdentity} board={board} signer={signer} activeId={activeId} setActiveId={setActiveId} />
         ) : (
-          <BoardScreen board={board} signer={signer} onRequireIdentity={requireIdentity} />
+          <BoardScreen market={market} key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
+        <SupportZap />
       </main>
 
       <nav className="tabs">
-        <button className={tab === 'pay' ? 'on' : ''} onClick={() => signer ? setTab('pay') : requireIdentity()}>
+        <button className={tab === 'pay' ? 'on' : ''} onClick={() => { setActiveId(null); setTab('pay') }}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
             <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11M4.5 8h7" />
           </svg>
-          Scan &amp; post
+          Pay a QR
         </button>
-        <button className={tab === 'board' ? 'on' : ''} onClick={() => setTab('board')}>
+        <button className={tab === 'board' ? 'on' : ''} onClick={() => { setBoardOfferId(null); setTab('board') }}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
             <circle cx="8" cy="8" r="1.5" />
             <circle cx="8" cy="8" r="4" opacity="0.6" />
             <circle cx="8" cy="8" r="6.5" opacity="0.35" />
           </svg>
-          Board
+          Earn sats
         </button>
+        <button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>My trades</button>
       </nav>
 
       {showSettings && signer && (
@@ -155,6 +164,7 @@ export default function App() {
           </button>
           </details>
           <SigningSettings signer={signer} onSigner={chooseSigner} onSignOut={leaveIdentity} />
+          <RecoverySettings market={market} signer={signer} onSigner={chooseSigner} />
           <TrustManager board={board} signer={signer} onChanged={() => setTrustRevision((r) => r + 1)} />
         </ProfileScreen>
       )}

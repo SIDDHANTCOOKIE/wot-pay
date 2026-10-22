@@ -1,0 +1,38 @@
+import { httpsOrigin } from './protocol.js'
+
+export function marketplaceConfig(env = import.meta.env) {
+  let panel = [], restoreMints = []
+  try { panel = JSON.parse(env.VITE_ARBITRATOR_PANEL || '[]') } catch { /* Invalid config disables agreement creation. */ }
+  // escrowKeys: per-trade public keys derived offline (scripts/arbitrator-keys.mjs).
+  // A single legacy escrowKey is accepted as a one-key list.
+  const key = k => /^(02|03)[0-9a-f]{64}$/.test(k)
+  panel = Array.isArray(panel) ? panel.map(p => p && { ...p, escrowKeys: Array.isArray(p.escrowKeys) ? p.escrowKeys : [p.escrowKey] }).filter(p => p && /^[0-9a-f]{64}$/.test(p.pubkey) && p.escrowKeys.length >= 1 && p.escrowKeys.length <= 1024 && p.escrowKeys.every(key) && new Set(p.escrowKeys).size === p.escrowKeys.length && typeof p.name === 'string' && p.name.length <= 80) : []
+  // Only mints whose lost-response NUT-09 restoration passed a live test.
+  try { restoreMints = JSON.parse(env.VITE_RESTORE_VERIFIED_MINTS || '[]') } catch { /* Invalid config disables restore-only mints. */ }
+  restoreMints = Array.isArray(restoreMints) ? restoreMints.filter(m => { try { return httpsOrigin(m) === m } catch { return false } }) : []
+  // Pilot limits in whole rupees. No limit is implied: trading stays disabled
+  // until both are set, with the daily limit at least the per-trade one.
+  const rupees = name => { const v = Number(env[name]); return Number.isSafeInteger(v) && v > 0 ? v * 100 : null }
+  const limits = { tradePaise: rupees('VITE_PILOT_MAX_INR_PER_TRADE'), dayPaise: rupees('VITE_PILOT_MAX_INR_PER_DAY') }
+  const limited = !!limits.tradePaise && !!limits.dayPaise && limits.tradePaise <= limits.dayPaise
+  const ready=panel.length > 0
+  // Incident pause: stops new listings, quotes, commitments and first funding,
+  // while settlement, refunds, collection and disputes on existing trades go on.
+  const paused = env.VITE_NEW_TRADES_PAUSED === 'true'
+  return { panel, restoreMints, limits, ready, paused, protectedEnabled: ready && limited && env.VITE_PROTECTED_TRADES_ENABLED === 'true' }
+}
+
+export function assertNewTrades(config) {
+  if (config.paused) throw new Error('New trades are paused. Existing trades, refunds and settlement continue.')
+}
+
+export function assertWithinLimits(config, paise, recentPaise = 0) {
+  const { tradePaise, dayPaise } = config.limits || {}
+  if (!tradePaise || !dayPaise) throw new Error('Pilot trade limits are not configured.')
+  if (paise > tradePaise) throw new Error(`The pilot limit is ₹${tradePaise / 100} per trade.`)
+  if (recentPaise + paise > dayPaise) throw new Error(`The pilot limit is ₹${dayPaise / 100} per day across your trades.`)
+}
+
+export function assertDeploymentAgreement(config, agreement) {
+  if(!config.ready||!config.panel.some(p=>p.pubkey===agreement.arbitrator&&p.escrowKeys.includes(agreement.escrowKeys.arbitrator)))throw new Error('Agreement must use the configured independent arbitrator panel.')
+}

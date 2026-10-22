@@ -8,8 +8,10 @@ export default function Scanner({ onResult }) {
   const [error, setError] = useState('')
   const [manual, setManual] = useState('')
   const [camera, setCamera] = useState('starting')
+  const [cameraRequested, setCameraRequested] = useState(false)
 
   useEffect(() => {
+    if (!cameraRequested) return
     let done = false
     const scanner = new QrScanner(
       video.current,
@@ -38,7 +40,7 @@ export default function Scanner({ onResult }) {
       done = true
       scanner.destroy()
     }
-  }, [onResult])
+  }, [onResult, cameraRequested])
 
   const submitManual = (e) => {
     e.preventDefault()
@@ -50,7 +52,8 @@ export default function Scanner({ onResult }) {
 
   return (
     <div className="scanner">
-      <div className={`viewfinder ${camera === 'unavailable' ? 'camera-off' : ''}`}>
+      {!cameraRequested && <div className="card"><p>Scan a QR, choose a saved image, or enter a UPI ID below.</p><button className="btn primary" onClick={() => setCameraRequested(true)}>Scan with camera</button><p className="dim">Camera permission is requested only when you choose to scan.</p></div>}
+      {cameraRequested && <div className={`viewfinder ${camera === 'unavailable' ? 'camera-off' : ''}`}>
         <video ref={video} muted playsInline />
         {camera !== 'unavailable' && <div className="frame" />}
         {camera !== 'ready' && (
@@ -59,8 +62,22 @@ export default function Scanner({ onResult }) {
             <span>{camera === 'unavailable' ? 'Continue without scanning' : 'Starting camera…'}</span>
           </div>
         )}
-      </div>
+      </div>}
+      {cameraRequested && <button className="btn ghost" onClick={() => { setCameraRequested(false); setCamera('starting'); setError('') }}>Stop camera</button>}
       {error && <p className="hint warn" role="status">{error}</p>}
+      <label className="field">Choose a QR image
+        <input type="file" accept="image/*" onChange={async e => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          try {
+            if (file.size > 10_000_000) throw new Error('Choose an image smaller than 10 MB.')
+            const result = await QrScanner.scanImage(file, { returnDetailedScanResult: true })
+            const upi = parseUpi(result.data)
+            if (!upi) throw new Error('That image does not contain a supported UPI payment QR.')
+            onResult(upi)
+          } catch (error) { setError(error.message || 'Could not read that QR image.') }
+        }} />
+      </label>
       <form className="manual" onSubmit={submitManual}>
         <input
           value={manual}

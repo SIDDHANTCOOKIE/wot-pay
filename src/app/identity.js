@@ -2,6 +2,9 @@ import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'nos
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
 import * as nip19 from 'nostr-tools/nip19'
 import { wrapToken, openToken } from '../dm.js'
+import { wrapPrivate, openPrivate, wrapNotice } from '../marketplace/private.js'
+import { encryptBackup, decryptBackup, digest } from '../recovery.js'
+import { withMarketplace } from '../marketplace/remote-signer.js'
 
 const SK = 'wot-pay:sk'
 const TRUST = 'wot-pay:trust-npub'
@@ -18,12 +21,18 @@ export function localSigner() {
     localStorage.setItem(SK, hex)
   }
   const sk = hexToBytes(hex)
+  const vaultKey = digest(new TextEncoder().encode(`wot-pay:vault:v1:${hex}`))
   return {
     kind: 'local',
     pubkey: getPublicKey(sk),
     sign: async (t) => finalizeEvent(t, sk),
     wrapToken: (to, token, offerId) => wrapToken({ sk, to, token, offerId }),
     openToken: (w) => openToken(w, sk),
+    wrapPrivate: (to, signed) => wrapPrivate(sk, to, signed),
+    openPrivate: w => openPrivate(sk, w),
+    wrapNotice: (to, text) => wrapNotice(sk, to, text),
+    sealLocal: async value => new TextDecoder().decode(await encryptBackup(value, await vaultKey)),
+    openLocal: async sealed => decryptBackup(new TextEncoder().encode(sealed), await vaultKey),
   }
 }
 
@@ -31,7 +40,9 @@ export async function extensionSigner() {
   if (!window.nostr) return null
   const pubkey = await window.nostr.getPublicKey()
   if (!/^[0-9a-f]{64}$/.test(pubkey)) throw new Error('Extension returned an invalid public key')
-  return {
+  // Extensions with NIP-44 can trade privately; older ones stay browse-only.
+  const nip44 = window.nostr.nip44 && { encrypt: (pk, text) => window.nostr.nip44.encrypt(pk, text), decrypt: (pk, text) => window.nostr.nip44.decrypt(pk, text) }
+  return withMarketplace({
     kind: 'extension',
     pubkey,
     sign: async (t) => {
@@ -48,7 +59,7 @@ export async function extensionSigner() {
         throw new Error('Extension identity changed. Reconnect before posting.')
       return ev
     },
-  }
+  }, nip44)
 }
 
 export function toHexPubkey(input) {
@@ -155,7 +166,7 @@ async function bunkerSigner(saved) {
     await bounded(remote.connect(), close)
     const pubkey = await bounded(remote.getPublicKey(), close)
     if (!HEX64.test(pubkey)) throw new Error('Remote signer returned an invalid public key')
-    return {
+    return withMarketplace({
       kind: 'bunker',
       pubkey,
       close,
@@ -173,7 +184,7 @@ async function bunkerSigner(saved) {
           throw new Error('Remote signer returned a changed or invalid event')
         return ev
       },
-    }
+    }, { encrypt: (pk, text) => bounded(remote.nip44Encrypt(pk, text), close), decrypt: (pk, text) => bounded(remote.nip44Decrypt(pk, text), close) })
   } catch (e) {
     close()
     throw e
