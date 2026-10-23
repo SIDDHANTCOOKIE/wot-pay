@@ -1,6 +1,6 @@
 # Current revenue policy: voluntary support
 
-There is no platform fee. Optional zaps are offered through the Nostr profile configured in VITE_SUPPORT_NPUB, separately from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement.
+There is no platform fee. A small "Support us" button in the header (shown once a Lightning address is configured in VITE_SUPPORT_LN_ADDRESS) creates an invoice for an amount you choose and shows a receipt once it is paid. It is separate from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement.
 
 <div align="center">
 
