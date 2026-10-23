@@ -10,7 +10,7 @@ const DAY = 24 * 3600
 
 // Live view of the board: every app event from the last day, the viewer's
 // trust data, and profile names.
-export function useBoard(trustRoot, me, revision = 0) {
+export function useBoard(trustRoot, me, revision = 0, { onPublished } = {}) {
   const history = useMemo(() => createHistory(), [])
   const [historyError, setHistoryError] = useState('')
   const [pending, setPending] = useState([])
@@ -175,6 +175,8 @@ export function useBoard(trustRoot, me, revision = 0) {
       await history.acknowledge(signed)
       remember(signed)
       setPending(prev => prev.filter(e => e.id !== signed.id))
+      // A notice must never turn a published event into an error.
+      try { onPublished?.(next, id => events.get(id)) } catch { /* Best effort. */ }
       return result
     } catch (e) {
       throw e.name === 'TokenLeakError' ? e : new Error('Delivery unconfirmed. Retry the saved event from My trades; do not create another payment instruction.')

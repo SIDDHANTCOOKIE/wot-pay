@@ -53,6 +53,8 @@ scan or type UPI -> signed offer -> claim -> pay UPI externally
 5. The maker sends Lightning from their wallet, or pastes an existing Cashu token for private delivery.
 6. Each side stamps settled or disputed. These are signed statements, not verified payment receipts.
 
+When someone claims, accepts, settles, disputes, cancels a claim or sends sats as a token, the other person also gets a short encrypted chat message in their usual Nostr app, so they know to open wot-pay. It never includes the UPI ID, merchant or amounts, only goes to the person in that trade, and can be turned off in Settings → Send Nostr notices.
+
 ## the trust orbit
 
 The orbit shows how far a key is from your chosen graph root: yourself, a direct follow, a distant hop, or an outsider. The browser fetches up to two follow-list layers by default. Settles raise the ranking score; pending complaints remain visible without a misconduct penalty. Only stamps from authors in your graph count.

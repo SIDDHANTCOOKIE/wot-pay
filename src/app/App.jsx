@@ -2,7 +2,8 @@ import MyTrades from './MyTrades.jsx'
 import SupportZap from './SupportZap.jsx'
 import RecoverySettings from './RecoverySettings.jsx'
 import { useMarketplace } from './useMarketplace.js'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createNotifier } from '../notify.js'
 import { toHexPubkey, prefs, restoreSigner, signOut } from './identity.js'
 import { useBoard } from './useBoard.js'
 import { useTokens } from './useTokens.js'
@@ -66,9 +67,13 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const trustRoot = signer ? toHexPubkey(prefs.trustNpub()) || signer.pubkey : undefined
   const [trustRevision, setTrustRevision] = useState(0)
-  const live = useBoard(trustRoot, signer?.pubkey, trustRevision)
+  // Public-offer actions also nudge the other person through their Nostr app.
+  const notifierRef = useRef(null)
+  const live = useBoard(trustRoot, signer?.pubkey, trustRevision, { onPublished: (event, offerOf) => notifierRef.current?.forEvent(event, offerOf) })
+  const notifier = useMemo(() => createNotifier({ client: live.client, signer }), [live.client, signer])
+  notifierRef.current = notifier
   const market = useMarketplace(live.client, signer)
-  const cash = useTokens(live.client, signer)
+  const cash = useTokens(live.client, signer, notifier)
   const board = { ...live, cash, publish: async (event) => {
     if (!signer) throw new Error('Choose a signing identity before publishing.')
     return live.publish(event)

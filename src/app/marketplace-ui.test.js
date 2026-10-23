@@ -103,3 +103,12 @@ it('gives each side one primary action at the payment step', async () => {
   expect(page(t.agreement.requester,[proposal,notice,started])).not.toContain('Merchant received it')
   expect(page(t.agreement.requester,[proposal,notice,started,release])).toContain('Merchant received it · release payment')
 })
+it('offers a visible switch for Nostr notices, on by default', async () => {
+  const { default: SigningSettings } = await import('./SigningSettings.jsx')
+  const html = render(SigningSettings, { signer: { pubkey: 'a'.repeat(64) }, onSigner() {}, onSignOut() {} })
+  expect(html).toContain('Send Nostr notices')
+  expect(html).toMatch(/type="checkbox"[^>]*checked/)
+  expect(html).toContain('never includes payment details')
+  vi.stubGlobal('localStorage', { getItem: k => (k === 'wot-pay:nostr-notices' ? 'off' : null) })
+  expect(render(SigningSettings, { signer: { pubkey: 'a'.repeat(64) }, onSigner() {}, onSignOut() {} })).not.toMatch(/type="checkbox"[^>]*checked/)
+})
