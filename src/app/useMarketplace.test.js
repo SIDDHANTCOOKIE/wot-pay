@@ -8,6 +8,7 @@ import { childPubkeys } from '../marketplace/arbitrator-keys.js'
 import { testMint } from '../marketplace/test-mint.fixture.js'
 import { connectMint } from '../marketplace/escrow.js'
 import { useMarketplace } from './useMarketplace.js'
+import { makeMount } from './hook-harness.fixture.js'
 
 // A minimal hook runtime: enough of React's state, effect, memo and ref
 // semantics to drive two real marketplace instances without a DOM.
@@ -24,40 +25,7 @@ vi.mock('../marketplace/backup.js', async () => {
   return { backupOperation: async (vault, signer, operation) => receipt(operation), syncPrivateBackup: async () => null }
 })
 vi.mock('../marketplace/escrow.js', async original => ({ ...await original(), connectMint: vi.fn() }))
-
-function mount(hook, ...args) {
-  const slots = [], cleanups = []
-  const render = () => {
-    let i = 0
-    const effects = []
-    runtime.current = {
-      state(init) {
-        const k = i++
-        if (!(k in slots)) slots[k] = { v: typeof init === 'function' ? init() : init }
-        const slot = slots[k]
-        return [slot.v, next => { slot.v = typeof next === 'function' ? next(slot.v) : next }]
-      },
-      effect(fn, deps) {
-        const k = i++, previous = slots[k]
-        if (previous && deps && deps.every((d, j) => d === previous.deps[j])) return
-        previous?.cleanup?.()
-        slots[k] = { deps }
-        effects.push(() => { const cleanup = fn(); if (typeof cleanup === 'function') { slots[k].cleanup = cleanup; cleanups.push(cleanup) } })
-      },
-      memo(fn, deps) {
-        const k = i++, previous = slots[k]
-        if (!previous || deps.some((d, j) => d !== previous.deps[j])) slots[k] = { deps, v: fn() }
-        return slots[k].v
-      },
-      ref(value) { const k = i++; if (!(k in slots)) slots[k] = { current: value }; return slots[k] },
-    }
-    const api = hook(...args)
-    effects.forEach(run => run())
-    return api
-  }
-  render()
-  return { api: render, unmount: () => cleanups.forEach(c => c()) }
-}
+const mount = makeMount(runtime)
 
 function network() {
   const events = [], listingSubs = [], inboxes = new Map(), wraps = []

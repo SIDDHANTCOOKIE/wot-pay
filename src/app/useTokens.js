@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 // Cashu tokens sent to us (or by us) over NIP-17, matched to offers by id.
-export function useTokens(client, signer) {
+export function useTokens(client, signer, notifier) {
   const [tokens, setTokens] = useState([])
   const supported = !!signer?.wrapToken
 
@@ -21,6 +21,7 @@ export function useTokens(client, signer) {
     await client.sendWrapped(wraps)
     const own = signer.openToken(wraps[1])
     if (own) add(own)
+    notifier?.tokenSent(to, offerId)
   }
 
   const forOffer = (offerId, from) => tokens.filter((t) => t.offerId === offerId && t.from === from)

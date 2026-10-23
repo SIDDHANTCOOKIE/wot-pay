@@ -5,6 +5,7 @@ import { deliverPrivate, inboxRelays } from '../marketplace/private.js'
 import { createEscrowKey } from '../marketplace/escrow.js'
 import { pickArbitratorKey } from '../marketplace/arbitrator-keys.js'
 import { completionTemplate } from '../marketplace/attestations.js'
+import { createNotifier } from '../notify.js'
 import { sealAttachment, uploadAttachment, openAttachment, MAX_ATTACHMENTS } from '../marketplace/evidence.js'
 import { TERMS_VERSION } from '../marketplace/pricing.js'
 import { marketplaceConfig, assertDeploymentAgreement, assertWithinLimits, assertNewTrades } from '../marketplace/config.js'
@@ -112,21 +113,9 @@ export function useMarketplace(client, signer) {
     }).catch(e=>setError(e.message))
     return()=>{live=false;close?.()}
   },[client,signer,vault,inboxRevision])
-  // Best-effort nudge through the person's usual Nostr app, which shows it
-  // while wot-pay is closed. It carries no UPI ID or amount, never blocks a
-  // trade step and is not retried. Set localStorage wot-pay:nostr-notices=off
-  // to stop sending them.
-  function notify(to,text) {
-    let off=false
-    try{off=localStorage.getItem('wot-pay:nostr-notices')==='off'}catch{}
-    if(off||!signer?.wrapNotice)return
-    let link='wot-pay'
-    try{link=`${location.origin}${location.pathname}#trades`}catch{}
-    void (async()=>{
-      const relays=inboxRelays(await client.queryIdentity({kinds:[10050],authors:[to]}),to)
-      if(relays.length)await client.publishTo(relays,await signer.wrapNotice(to,`wot-pay: ${text} ${link}`))
-    })().catch(()=>{})
-  }
+  // Best-effort nudge through the person's usual Nostr app (see src/notify.js).
+  const notifier=useMemo(()=>createNotifier({client,signer}),[client,signer])
+  const notify=(to,text)=>notifier.notify(to,text)
   const CASE_BATCH_CHARS=15000
   const when=seconds=>new Date(seconds*1000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})
   async function enableInbox() {

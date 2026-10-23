@@ -8,12 +8,14 @@ import {
   saveSignerChoice,
   hasLocalKey,
 } from './identity.js'
+import { noticesOn, setNotices } from '../notify.js'
 
 export default function SigningSettings({ signer, onSigner, onSignOut }) {
   const [secret, setSecret] = useState(''),
     [bunker, setBunker] = useState('')
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState('')
+    [error, setError] = useState(''),
+    [notices, setNoticesShown] = useState(() => noticesOn())
   async function change(get) {
     setBusy(true)
     setError('')
@@ -140,9 +142,27 @@ export default function SigningSettings({ signer, onSigner, onSignOut }) {
         {busy ? 'Connecting…' : 'Connect remote signer (NIP-46)'}
       </button>
       <p className="dim">
-        Remote signer uses a bunker link from your signer app. Approve the connection there. Extension and
-        bunker modes currently support public events only; use Lightning, not token DMs.
+        Remote signer uses a bunker link from your signer app. Approve the connection there. Token DMs need the
+        device key, so use Lightning with an extension or remote signer. Private marketplace trades also work
+        with signers that support NIP-44 encryption.
       </p>
+      <label className="field check">
+        <span>
+          <input
+            type="checkbox"
+            checked={notices}
+            onChange={(e) => {
+              setNotices(e.target.checked)
+              setNoticesShown(e.target.checked)
+            }}
+          />
+          Send Nostr notices
+        </span>
+        <small className="dim">
+          When you claim, accept, settle, dispute or send sats, the other person gets a short encrypted message in
+          their usual Nostr app, so they know to open wot-pay. It never includes payment details.
+        </small>
+      </label>
       {error && (
         <p className="hint warn" role="alert">
           {error}

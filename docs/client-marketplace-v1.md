@@ -53,10 +53,11 @@ Every trade message after the proposal names the message it answers (`payload.re
 
 ## Notifications while wot-pay is closed
 
-- wot-pay cannot run in the background, so at each step that needs someone (new quote request, offer, accept, funded escrow, payment reported, declined escrow, problem reported, new case, settlement, refund) it also sends that person an ordinary NIP-17 chat message. Their usual Nostr app (Amethyst, Damus, 0xchat and others) shows it with a link back.
+- wot-pay cannot run in the background, so at each step that needs someone it also sends that person an ordinary NIP-17 chat message. In the escrow marketplace: new quote request, offer, accept, funded escrow, payment reported, declined escrow, problem reported, new case, settlement, refund. In the public-offer flow: a claim on your offer, your claim being accepted, a settled or disputed stamp, a cancelled claim, and sats sent as a token DM. Their usual Nostr app (Amethyst, Damus, 0xchat and others) shows it with a link back.
 - Notices name the step only: no UPI ID, merchant or amount. They are encrypted to the recipient, never block a trade step, and are not retried. wot-pay ignores them when reading trade messages.
 - After "I paid", the payer also receives a reminder in their own app with the confirmation and refund deadlines.
-- Set localStorage `wot-pay:nostr-notices` to `off` to stop sending them.
+- Delivery uses the recipient's private inbox relays when they have published them, and otherwise the app's relays, the same ones token DMs use, since public-offer users have no inbox. Notices are de-duplicated per event, so retrying an action does not repeat one that was delivered.
+- Turn them off under Settings → Send Nostr notices (stored as `wot-pay:nostr-notices=off`).
 
 ## External signers
 
