@@ -317,6 +317,7 @@ it('nudges each person through their usual Nostr app at every step, without paym
 })
 
 it('escalates a long case in relay-sized batches and shares encrypted evidence with the arbitrator', async () => {
+  const { parsePrivate } = await import('../marketplace/protocol.js')
   const { blossom, PNG } = await import('../marketplace/evidence.fixture.js')
   const { SUGGESTED_SERVERS } = await import('../recovery.js')
   const { MAX_WRAP_BYTES } = await import('../marketplace/private.js')
@@ -328,11 +329,15 @@ it('escalates a long case in relay-sized batches and shares encrypted evidence w
   await until(async () => (await m.row(m.p)).view.canPay, 'automatic escrow verification')
   await m.p.api().action(await m.row(m.p), 'dispute', { reason: 'Merchant says nothing arrived' })
   await until(async () => (await m.row(m.r)).view.dispute, 'dispute')
-  for (let i = 0; i < 40; i++) await m.r.api().action(await m.row(m.r), 'evidence', { note: `Statement part ${i}: ${'x'.repeat(900)}` })
+  // ~25 KB of statements: more than one 15 KB batch, with few slow signing steps.
+  for (let i = 0; i < 10; i++) await m.r.api().action(await m.row(m.r), 'evidence', { note: `Statement part ${i}: ${'x'.repeat(2500)}` })
   await m.r.api().attachEvidence(await m.row(m.r), new File([PNG], 'upi-receipt.png', { type: 'image/png' }), 'UPI receipt')
   await m.r.api().escalate(await m.row(m.r))
   const cases = m.net.wraps.filter(w => w.tags.some(t => t[1] === m.arbitrator.pubkey))
   expect(cases.every(w => JSON.stringify(w).length <= MAX_WRAP_BYTES)).toBe(true)
+  const caseParts = cases.map(w => openPrivate(m.arbitrator.sk, w)).map(e => e && parsePrivate(e)).filter(e => e?.action === 'case')
+  expect(caseParts.length).toBeGreaterThan(1)
+  expect(new Set(caseParts.map(e => e.payload.parts))).toEqual(new Set([caseParts.length]))
   const sent = (await m.row(m.r)).value.events.length
   const merged = await until(async () => { const row = m.arb.api().trades[0]; return row?.value.events.length === sent && row }, 'merged case')
   expect(merged.view.dispute).toBeTruthy()
