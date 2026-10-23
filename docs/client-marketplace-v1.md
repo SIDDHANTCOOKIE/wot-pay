@@ -2,7 +2,7 @@
 
 Updated 21 October 2026. This branch implements a client-only protected-trade protocol and UI. It is not approved for production money. Nostr relays, Cashu mints and Blossom storage are external servers; there is no custom application backend.
 
-There is no platform fee and no fee recipient. Optional zaps are offered through the Nostr profile configured in `VITE_SUPPORT_NPUB`, separately from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement. Protocol v3 replaced the earlier v2 drafts; v2 agreements were never enabled for real funds and are not accepted.
+There is no platform fee and no fee recipient. An optional "Support us" button (see below) is separate from trade funding, ranking and settlement. Mint and network costs still apply and are disclosed in each agreement. Protocol v3 replaced the earlier v2 drafts; v2 agreements were never enabled for real funds and are not accepted.
 
 ## How a protected trade works
 
@@ -43,6 +43,15 @@ Every trade message after the proposal names the message it answers (`payload.re
 
 - After a trade that paid the payer, each party may publish a kind-3408 completion attestation (opt-in). It names the counterparty, an amount range and the week, plus a commitment derived from the private agreement id; never the merchant, UPI ID, exact amount or agreement.
 - A completion counts only when both parties attested the same commitment with matching terms. Each party is credited with the trust weight of the other, only when that other party is inside the viewer's graph, and one pair counts at most three times. Refunds and declined trades cannot be attested.
+
+## Support button
+
+- A small "Support us" button in the header appears only when `VITE_SUPPORT_LN_ADDRESS` is set. Nothing contacts the provider until the sheet is opened.
+- The person picks or types an amount (and an optional note if the provider allows one). The app resolves the Lightning address (LUD-16), asks the provider's callback for an invoice for exactly that amount, and refuses to show any invoice whose amount differs, has expired, is not mainnet, fails its checksum, or whose description hash does not match the provider's metadata. The invoice is shown as a QR code, a wallet link and a copy button.
+- Payment is confirmed through the provider's LUD-21 verify link; a preimage that hashes to the invoice's payment hash is treated as proof, otherwise the receipt says the provider confirmed it. With no verify link the person taps "I've paid" and the receipt says it is not confirmed.
+- An optional public zap (shown only if the provider supports NIP-57 and the person has a signer, default off) sends a signed zap request to the provider and checks the invoice commits to it; without a verify link it is confirmed by a relay receipt signed by the provider's own key that names the exact request and invoice. It shares the donor's key and note publicly, which the sheet says.
+- Shared with the provider: the amount and any note. Nothing from trades. If the browser cannot reach the provider (for example CORS), the sheet shows the plain address with copy and wallet-link buttons.
+- The support profile's own Nostr metadata needs `lud16` for zaps from other Nostr apps; the in-app button works from the configured address alone.
 
 ## Message size, cases and evidence
 

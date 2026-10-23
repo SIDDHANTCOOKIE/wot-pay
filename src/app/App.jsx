@@ -1,5 +1,5 @@
 import MyTrades from './MyTrades.jsx'
-import SupportZap from './SupportZap.jsx'
+import SupportButton from './SupportButton.jsx'
 import RecoverySettings from './RecoverySettings.jsx'
 import { useMarketplace } from './useMarketplace.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -103,13 +103,16 @@ export default function App() {
         <div className="brand">
           wot<span>·</span>pay
         </div>
-        <button className="who" onClick={() => signer ? setShowSettings(true) : requireIdentity()}>
-          <span
-            className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
-            title={`${board.relaysUp ?? '…'}/${board.total} relays`}
-          />
-          {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Choose identity'}
-        </button>
+        <div className="header-actions">
+          <SupportButton signer={signer} client={live.client} />
+          <button className="who" onClick={() => signer ? setShowSettings(true) : requireIdentity()}>
+            <span
+              className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
+              title={`${board.relaysUp ?? '…'}/${board.total} relays`}
+            />
+            {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Choose identity'}
+          </button>
+        </div>
       </header>
 
       <main>
@@ -121,7 +124,6 @@ export default function App() {
         ) : (
           <BoardScreen market={market} key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
-        <SupportZap />
       </main>
 
       <nav className="tabs">
