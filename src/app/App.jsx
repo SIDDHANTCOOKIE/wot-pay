@@ -103,6 +103,7 @@ export default function App() {
         <div className="brand">
           wot<span>·</span>pay
         </div>
+        <div className="header-actions"><SupportZap client={live.client} />
         <button className="who" onClick={() => signer ? setShowSettings(true) : requireIdentity()}>
           <span
             className={`dot ${board.relaysUp === 0 ? 'down' : ''}`}
@@ -110,6 +111,7 @@ export default function App() {
           />
           {signer ? <Name pubkey={signer.pubkey} profiles={board.profiles} showNpub /> : 'Choose identity'}
         </button>
+        </div>
       </header>
 
       <main>
@@ -121,7 +123,6 @@ export default function App() {
         ) : (
           <BoardScreen market={market} key={boardOfferId || 'board'} initialOfferId={boardOfferId} board={board} signer={signer} onRequireIdentity={requireIdentity} />
         )}
-        <SupportZap />
       </main>
 
       <nav className="tabs">
