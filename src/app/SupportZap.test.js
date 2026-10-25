@@ -17,5 +17,7 @@ it('offers optional profile-based support only for a valid configured npub',()=>
   const html=renderToStaticMarkup(createElement(SupportZap,{npub}))
   expect(html).toContain(`nostr:${npub}`)
   expect(html).toContain('optional zap')
-  expect(html).toContain('does not affect offers')
+  expect(html).toContain('support-link')
+  expect(html).not.toContain('<aside')
+  expect(html).toContain('Generate Lightning invoice')
 })
